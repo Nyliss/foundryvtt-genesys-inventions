@@ -1,6 +1,16 @@
-# Genesys Inventions v0.3.0
+# Genesys Inventions v0.3.1
 
 Player-facing invention project manager for Foundry VTT 13.x + Genesys 0.2.19, based on **Wonderous Inventions** with clearly marked Workshop guidance where the supplement leaves adjudication to the GM.
+
+
+## v0.3.1
+
+### UI and dice polish
+
+- Reworked chat dice silhouettes again using outlined inline SVG shapes. d6, d8, and d12 dice now keep a stable Genesys-style outline instead of depending on browser clip-path rendering.
+- Rebuilt **Add Components Manually** as a compact dialog instead of a full-window shell.
+- Added a live **NPC / Test Actor search** for GMs. Large imported adversary libraries no longer need to be scrolled as one enormous selector; the picker shows up to 75 matching Actors and filters as you type.
+- Simplified the English crafting-family label to **Leatherworking**. Ukrainian remains **Чинбарство та кушнірство**.
 
 ## v0.3.0
 
@@ -9,7 +19,7 @@ Player-facing invention project manager for Foundry VTT 13.x + Genesys 0.2.19, b
 - Added **Jewelry & Glasswork / Ювелірні вироби та гутництво**.
 - Added **Weaving / Ткацтво**.
 - Added **Pottery / Гончарство**.
-- Renamed Leatherworking to **Tanning & Furriery / Чинбарство та кушнірство**.
+- Renamed the Ukrainian Leatherworking label to **Чинбарство та кушнірство**; English remains **Leatherworking**.
 - Expanded Mechanisms into **Joinery, Carpentry & Mechanisms / Столярство, теслярство та механізми**.
 - Added manual Component Stockpile entries, including family, Tier, value, custom label, and notes.
 - Gathering now uses a simple Workshop baseline of **100 currency per net Success** at 100% yield. The GM can scale this in Module Settings. For example, 200% grants 200 currency per net Success.
@@ -30,7 +40,7 @@ Player-facing invention project manager for Foundry VTT 13.x + Genesys 0.2.19, b
 
 ### Dice and difficulty
 
-- Reworked custom dice display to use CSS die silhouettes instead of font-private glyph shapes: d6 square, d8 diamond, and d12 hexagonal silhouette.
+- Reworked custom dice display to use stable die silhouettes instead of font-private glyph shapes: d6 square, d8 diamond, and d12 hexagonal silhouette.
 - Difficulty labels now show the corresponding Difficulty dice visually.
 - Added **Difficulty Upgrades** support. Upgrades convert Difficulty dice into Challenge dice according to the Genesys upgrade sequence, and Challenge dice are shown alongside Difficulty dice.
 

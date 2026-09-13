@@ -1,5 +1,5 @@
 const MODULE_ID = "genesys-inventions";
-const MODULE_VERSION = "0.3.0";
+const MODULE_VERSION = "0.3.1";
 const SOCKET = `module.${MODULE_ID}`;
 const FLAG_SCOPE = MODULE_ID;
 const IMPORT_FLAG_SCOPE = "world";
@@ -150,7 +150,7 @@ const GATHERING_DOMAINS = Object.freeze({
     examplesEn: "sword, chainmail, helmet, shield, precision tool, mechanical housing, runic blank"
   },
   leather: {
-    label: "Чинбарство та кушнірство", labelEn: "Tanning & Furriery", icon: "◫",
+    label: "Чинбарство та кушнірство", labelEn: "Leatherworking", icon: "◫",
     skillCandidates: ["Ремесло", "Craft", "Чинбарство", "Tanning", "Кушнірство", "Furriery", "Leatherworking", "Виживання", "Survival"],
     componentType: "Шкіра, хутро, кістка й волокна", componentTypeEn: "Leather, fur, bone & fibers",
     ordinary: "звичайні шкури, хутро, сухожилля, нитки, віск, кістка, дерев’яна фурнітура",
@@ -1726,19 +1726,30 @@ async function narrativeSymbolHTML(code) {
   }
 }
 
-function dieShapeClass(denomination) {
+function dieShapeKind(denomination) {
   const d = String(denomination ?? "").toLowerCase();
-  if (d === "b" || d === "s") return "shape-d6";
-  if (d === "a" || d === "i") return "shape-d8";
-  if (d === "p" || d === "c") return "shape-d12";
-  return "shape-d6";
+  if (d === "b" || d === "s") return "d6";
+  if (d === "a" || d === "i") return "d8";
+  if (d === "p" || d === "c") return "d12";
+  return "d6";
+}
+
+function genesysDieShapeSVG(denomination) {
+  const kind = dieShapeKind(denomination);
+  if (kind === "d8") {
+    return `<svg class="ginv-die-shape shape-d8" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><polygon points="16,1.5 30.5,16 16,30.5 1.5,16" /></svg>`;
+  }
+  if (kind === "d12") {
+    return `<svg class="ginv-die-shape shape-d12" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><polygon points="8,2 24,2 31,16 24,30 8,30 1,16" /></svg>`;
+  }
+  return `<svg class="ginv-die-shape shape-d6" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="2" y="2" width="28" height="28" rx="3.5" ry="3.5" /></svg>`;
 }
 
 async function genesysDieFaceHTML(die) {
   const denomination = String(die?.denomination ?? "").toLowerCase();
   const rawFace = String(die?.face ?? "").trim();
   const face = rawFace ? await narrativeSymbolHTML(rawFace) : "";
-  return `<span class="ginv-chat-die die-${esc(denomination)} ${rawFace ? "" : "blank"}"><span class="ginv-die-shape ${dieShapeClass(denomination)}" aria-hidden="true"></span><span class="ginv-die-face-symbols">${face}</span></span>`;
+  return `<span class="ginv-chat-die die-${esc(denomination)} ${rawFace ? "" : "blank"}">${genesysDieShapeSVG(denomination)}<span class="ginv-die-face-symbols">${face}</span></span>`;
 }
 
 async function genesysChatCardHTML({actor, skillName, label, difficulty, upgrades = 0, roll, automatic = {}, contextHTML = ""}) {
@@ -3272,14 +3283,24 @@ function openWorkshop(initialActorId = null) {
   }
   const selected = availableActors.find(a => a.id === initialActorId) ?? playerActors[0] ?? npcActors[0] ?? null;
   const selectedIsNpc = npcActors.some(actor => actor.id === selected?.id);
-  const state = {theme: storedTheme(), textSize: storedTextSize(), actorId: selected?.id ?? "", actorMode: selectedIsNpc ? "npc" : "player", view: "home", projectFilter: "all"};
+  const state = {theme: storedTheme(), textSize: storedTextSize(), actorId: selected?.id ?? "", actorMode: selectedIsNpc ? "npc" : "player", npcSearch: "", view: "home", projectFilter: "all"};
   const activeActorList = () => game.user?.isGM && state.actorMode === "npc" ? npcActors : playerActors;
   const overlay = document.createElement("div"); overlay.className = "ginv-overlay"; document.body.appendChild(overlay);
   const close = () => { overlay.remove(); removeRestoreButtons(); };
 
   function renderHome() {
-    const list = activeActorList();
-    if (!list.some(a => a.id === state.actorId)) state.actorId = list[0]?.id ?? "";
+    const fullList = activeActorList();
+    const npcQuery = String(state.npcSearch ?? "").trim().toLocaleLowerCase();
+    let list = fullList;
+    if (game.user?.isGM && state.actorMode === "npc") {
+      const matches = npcQuery
+        ? fullList.filter(actor => `${actor.name ?? ""} ${actor.type ?? ""}`.toLocaleLowerCase().includes(npcQuery))
+        : fullList;
+      list = matches.slice(0, 75);
+      const selectedActor = fullList.find(actor => actor.id === state.actorId);
+      if (selectedActor && !list.some(actor => actor.id === selectedActor.id)) list = [selectedActor, ...list].slice(0, 75);
+    }
+    if (!fullList.some(a => a.id === state.actorId)) state.actorId = fullList[0]?.id ?? "";
     const actor = game.actors.get(state.actorId);
     const projects = actor ? projectsForActor(actor.id) : [];
     const pending = game.user.isGM ? projectJournals().filter(j => projectFromJournal(j)?.status === "pending") : [];
@@ -3292,7 +3313,9 @@ function openWorkshop(initialActorId = null) {
           <div class="ginv-panel ginv-home-character">
             <div class="ginv-field">
               <label>${game.user.isGM && state.actorMode === "npc" ? tx("NPC / Test Inventor","НІП / тестовий винахідник") : tx("Inventor Character","Персонаж-винахідник")}</label>
+              ${game.user.isGM && state.actorMode === "npc" ? `<input type="search" data-npc-search value="${esc(state.npcSearch)}" placeholder="${tx("Search NPC / Test Actor…","Пошук НІПа / тестового Actor…")}">` : ""}
               <select data-actor>${list.map(a => `<option value="${a.id}" ${a.id === state.actorId ? "selected" : ""}>${esc(a.name)}${game.user.isGM && state.actorMode === "npc" ? ` · ${esc(a.type)}` : ""}</option>`).join("")}</select>
+              ${game.user.isGM && state.actorMode === "npc" ? `<div class="ginv-help" data-npc-count>${tx(`Showing ${list.length} of ${fullList.length} NPC / test Actors. Type to narrow the list.`,`Показано ${list.length} із ${fullList.length} НІПів / тестових Actor. Введіть текст, щоб звузити список.`)}</div>` : ""}
             </div>
             ${game.user.isGM ? `<div class="ginv-row" style="align-self:end"><button type="button" class="ginv-btn ${state.actorMode === "npc" ? "action" : ""}" data-actor-mode>${state.actorMode === "npc" ? tx("Use Player Characters","Обрати персонажа гравця") : tx("Choose NPC / Test Actor","Обрати НІПа / тестового Actor")}</button></div>` : ""}
             <div class="ginv-home-counts">
@@ -3316,7 +3339,25 @@ function openWorkshop(initialActorId = null) {
     </div>`;
     bindShellControls(overlay, state, renderHome, close);
     bindField(overlay, "[data-actor]", v => { state.actorId = v; renderHome(); }, "change");
-    overlay.querySelector("[data-actor-mode]")?.addEventListener("click", () => { state.actorMode = state.actorMode === "npc" ? "player" : "npc"; state.actorId = activeActorList()[0]?.id ?? ""; renderHome(); });
+    const npcSearch = overlay.querySelector("[data-npc-search]");
+    if (npcSearch) {
+      npcSearch.addEventListener("input", () => {
+        state.npcSearch = npcSearch.value;
+        const select = overlay.querySelector("[data-actor]");
+        const count = overlay.querySelector("[data-npc-count]");
+        const full = npcActors;
+        const query = String(state.npcSearch ?? "").trim().toLocaleLowerCase();
+        const matches = (query ? full.filter(actor => `${actor.name ?? ""} ${actor.type ?? ""}`.toLocaleLowerCase().includes(query)) : full).slice(0, 75);
+        const selectedActor = full.find(actor => actor.id === state.actorId);
+        const visible = selectedActor && !matches.some(actor => actor.id === selectedActor.id) ? [selectedActor, ...matches].slice(0, 75) : matches;
+        if (select) {
+          select.innerHTML = visible.map(actor => `<option value="${actor.id}" ${actor.id === state.actorId ? "selected" : ""}>${esc(actor.name)} · ${esc(actor.type)}</option>`).join("");
+          if (!visible.some(actor => actor.id === state.actorId) && visible[0]) { state.actorId = visible[0].id; select.value = state.actorId; }
+        }
+        if (count) count.textContent = tx(`Showing ${visible.length} of ${full.length} NPC / test Actors. Type to narrow the list.`, `Показано ${visible.length} із ${full.length} НІПів / тестових Actor. Введіть текст, щоб звузити список.`);
+      });
+    }
+    overlay.querySelector("[data-actor-mode]")?.addEventListener("click", () => { state.actorMode = state.actorMode === "npc" ? "player" : "npc"; state.npcSearch = ""; state.actorId = activeActorList()[0]?.id ?? ""; renderHome(); });
     overlay.querySelector("[data-new]")?.addEventListener("click", () => { const actorNow = game.actors.get(state.actorId); if (!canUseInventorActor(actorNow)) { ui.notifications.warn(tx("You cannot use that Actor as the inventor.","Ви не можете використовувати цього Actor як винахідника.")); return; } close(); openNewInvention(actorNow, state, () => openWorkshop(actorNow.id)); });
     overlay.querySelector("[data-projects]")?.addEventListener("click", () => { state.view = "projects"; renderProjects(); });
     overlay.querySelector("[data-gather]")?.addEventListener("click", () => { state.view = "gather"; renderGathering(); });

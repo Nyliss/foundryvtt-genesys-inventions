@@ -1157,18 +1157,6 @@
   inset: 2px;
   z-index: 1;
   display: block;
-  background: var(--die-color, #777);
-  filter: drop-shadow(0 1px 1px rgba(0,0,0,.28));
-}
-
-.ginv-die-shape.shape-d6 { border-radius: 5px; }
-.ginv-die-shape.shape-d8 {
-  inset: 3px;
-  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-}
-.ginv-die-shape.shape-d12 {
-  inset: 2px 1px;
-  clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
 }
 
 .ginv-die-face-symbols {
@@ -1254,3 +1242,75 @@
 }
 
 
+
+/* ---------- v0.3.1 UI refinements ---------- */
+
+/* Compact manual stockpile editor. The generic .ginv-shell is a full-window
+   application shell, so this prompt needs its own dialog-sized geometry. */
+.ginv-shell.ginv-manual-components {
+  width: min(900px, 94vw);
+  height: auto;
+  min-height: 0;
+  max-height: 90vh;
+  display: block;
+  overflow: auto;
+  padding: 16px;
+}
+
+.ginv-manual-components .ginv-grid3 {
+  grid-template-columns: minmax(260px, 1.6fr) minmax(130px, .55fr) minmax(170px, .75fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ginv-manual-components .ginv-wide { grid-column: 1 / -1; }
+.ginv-manual-components textarea { min-height: 96px; resize: vertical; }
+.ginv-manual-components .ginv-callout { margin-top: 14px; }
+.ginv-manual-components .ginv-roll-actions { margin-top: 14px; justify-content: flex-end; }
+
+@media (max-width: 780px) {
+  .ginv-manual-components .ginv-grid3 { grid-template-columns: 1fr; }
+  .ginv-manual-components .ginv-wide { grid-column: auto; }
+}
+
+/* Narrative dice in v0.3.1 use inline SVG silhouettes. This gives them a
+   consistent dark outline and the same d6 / d8 / d12 visual language used by
+   the Genesys system instead of relying on browser clip-path rendering. */
+.ginv-die-shape {
+  position: absolute;
+  inset: 0;
+  width: 32px;
+  height: 32px;
+  z-index: 1;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.28));
+  color: var(--die-color, #777);
+}
+
+.ginv-die-shape rect,
+.ginv-die-shape polygon {
+  fill: currentColor;
+  stroke: #171717;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ginv-chat-die.blank .ginv-die-shape rect,
+.ginv-chat-die.blank .ginv-die-shape polygon {
+  opacity: .96;
+}
+
+.ginv-chat-die .ginv-die-face-symbols {
+  font-size: 1.02em;
+  text-shadow: 0 1px rgba(255,255,255,.15);
+}
+
+/* NPC/test inventor search sits directly above the select and should stay
+   compact even when the world contains a very large adversary library. */
+.ginv-home-character [data-npc-search] {
+  width: 100%;
+}
+.ginv-home-character [data-npc-count] {
+  margin-top: 1px;
+}
