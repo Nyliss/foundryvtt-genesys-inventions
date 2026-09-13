@@ -1,122 +1,73 @@
-# Genesys Inventions v0.3.2
+## Genesys Inventions v0.3.2
 
-Player-facing invention project manager for Foundry VTT 13.x + Genesys 0.2.19, based on **Wonderous Inventions** with clearly marked Workshop guidance where the supplement leaves adjudication to the GM.
+A focused cleanup update for item creation, project roll history, Genesys dice presentation, and bilingual component stockpiles.
 
+### Item Qualities
 
+- Reworked the Item Qualities browser into a single-column layout.
+- Long quality descriptions now have enough horizontal space to remain readable.
+- Added hover/focus tooltips showing the full quality description.
+- The behavior now follows the same general approach used by the Fantasy Character Manager Shop.
 
-## v0.3.2
+### Project Roll History
 
-### Quality browser, roll log, dice display, and Stockpile localization
+- Fixed Project Roll entries storing stripped Chat Card text as one unreadable block.
+- Project Rolls now store and display structured narrative results such as:
+  - Success
+  - Advantage
+  - Threat
+  - Triumph
+  - Despair
+- Older entries attempt to recover their structured result from the original Chat Message.
+- If the original Chat Message is no longer available, the Project Log falls back to a clean neutral record instead of displaying broken text.
 
-- Item Qualities now use a single-column browser with more room for descriptions.
-- Hovering or focusing a Quality shows its full description in a floating tooltip.
-- Project Roll records now show structured narrative results instead of flattening the entire chat card into unreadable text.
-- Existing v0.3.1 roll records are cleaned at display time when their original Chat roll is still available.
-- Inventions continues to roll real FVTT-Genesys narrative dice, but its custom chat card now uses reliable color-coded square die faces instead of trying to reproduce the system's private native die silhouettes.
-- Roll headings show the governing Characteristic abbreviation when available, such as **Ремесло (Cun)**.
-- Standard gathered Component Stockpile entries now localize dynamically when switching EN / UA. Manual custom names and notes remain exactly as entered.
+### Genesys Skill Rolls
 
-## v0.3.1
+- Skill rolls now display the Skill and linked Characteristic more explicitly, for example:
+  - `Crafting (Cun)`
+  - `Alchemy (Int)`
+- Inventions continues to build its dice pools from the Actor's embedded Skill rank and linked Characteristic.
+- Verified that the native Genesys system does not expose a stable public Actor skill-roll API suitable for reproducing the full native Dice Prompt workflow from an external module.
 
-### UI and dice polish
+### Dice Display
 
-- Reworked chat dice silhouettes again using outlined inline SVG shapes. d6, d8, and d12 dice now keep a stable Genesys-style outline instead of depending on browser clip-path rendering.
-- Rebuilt **Add Components Manually** as a compact dialog instead of a full-window shell.
-- Added a live **NPC / Test Actor search** for GMs. Large imported adversary libraries no longer need to be scrolled as one enormous selector; the picker shows up to 75 matching Actors and filters as you type.
-- Simplified the English crafting-family label to **Leatherworking**. Ukrainian remains **Чинбарство та кушнірство**.
+- Simplified the custom Inventions dice display for reliability.
+- Dice results now use consistent square color-coded faces instead of attempting to imitate the physical Genesys die shapes.
+- Colors remain easy to identify:
+  - Green: Ability
+  - Yellow: Proficiency
+  - Blue: Boost
+  - Purple: Difficulty
+  - Red: Challenge
+  - Black: Setback
+- Narrative symbols remain the actual Genesys Success, Advantage, Triumph, Failure, Threat, and Despair symbols.
+- This change affects presentation only. Roll resolution still uses the Genesys system's registered narrative dice.
 
-## v0.3.0
+### Component Stockpile Localization
 
-### Crafting families and components
+- Standard Component Stockpile entries are now rendered from their crafting-domain data instead of permanently storing one language as their visible name.
+- Switching between Ukrainian and English now updates standard component names and their intended uses.
+- Example:
+  - `Шкіра, хутро, кістка й волокна`
+  - `Leather, fur, bone & fibers`
+- System-generated labels such as `Suitable for` / `Підходять для` also follow the selected module language.
+- User-written custom names and notes are never automatically translated.
 
-- Added **Jewelry & Glasswork / Ювелірні вироби та гутництво**.
-- Added **Weaving / Ткацтво**.
-- Added **Pottery / Гончарство**.
-- Renamed the Ukrainian Leatherworking label to **Чинбарство та кушнірство**; English remains **Leatherworking**.
-- Expanded Mechanisms into **Joinery, Carpentry & Mechanisms / Столярство, теслярство та механізми**.
-- Added manual Component Stockpile entries, including family, Tier, value, custom label, and notes.
-- Gathering now uses a simple Workshop baseline of **100 currency per net Success** at 100% yield. The GM can scale this in Module Settings. For example, 200% grants 200 currency per net Success.
-- Tier still determines the recommended gathering difficulty rather than changing the base value per Success.
+### Compatibility
 
-### GM settings
-
-- The GM can enable or disable invention object types independently: Gear, Weapon, Armor, and Vehicle.
-- The GM can enable or disable each crafting/component family independently.
-- Added **Gathering Yield (%)** world setting.
-- Added module language setting: **Auto / Українська / English**.
-
-### Bilingual interface
-
-- Added Ukrainian and English interface text across the primary Inventions workflow, Rules, Gathering, Projects, GM Review, and Project screens.
-- Added a **🌐 UA / 🌐 EN** button to the bottom bar for quick client-side language switching.
-- Rules and Workshop guidance follow the selected module language.
-
-### Dice and difficulty
-
-- Reworked custom dice display to use stable die silhouettes instead of font-private glyph shapes: d6 square, d8 diamond, and d12 hexagonal silhouette.
-- Difficulty labels now show the corresponding Difficulty dice visually.
-- Added **Difficulty Upgrades** support. Upgrades convert Difficulty dice into Challenge dice according to the Genesys upgrade sequence, and Challenge dice are shown alongside Difficulty dice.
-
-### Existing features retained
-
-- Schematic rolls resolve from the actual Genesys chat roll and advance the Schematic automatically when no result spending is required.
-- Component Stockpiles persist on inventor Actors.
-- GMs can use a separate **NPC / Test Actor** selector.
-- Finished Items and Vehicles are archived to dedicated world Compendia.
-- Players only see Characters they own; Project Journals remain GM-controlled.
-
-## Important rules boundary
-
-**Wonderous Inventions** defines Schematics, Tier 3/5/7 component values, and item deconstruction. It does not provide a universal field-harvesting formula or a universal base crafting difficulty/time for every possible invention. The module therefore labels gathering yields, existing-base credit, setting-specific disciplines, and some project setup as **Workshop guidance** and keeps final values under GM approval.
-
-Vehicle profile construction is based on the **Expanded Player's Guide** vehicle creation guidelines. These describe profile balance and price guidance, not a universal physical construction procedure, so the final crafting parameters remain GM-approved.
-
-## Workflow
-
-1. Open **Inventions** and select a Character you own. GMs may instead choose an NPC/Test Actor.
-2. Start from scratch or use an existing Item/Vehicle as the base object.
-3. Choose an available crafting family and proposed object type.
-4. Optionally mark the supplied base object as part of construction so its recoverable component value offsets requirements.
-5. GM reviews the profile, crafting skill, schematic skill, base difficulty, difficulty upgrades, time, and total component cost.
-6. Develop Schematics and use **Roll Schematic** for the appropriate design difficulty.
-7. Gather, manually register, or otherwise acquire Tier 3/5/7 components in the inventor's Component Stockpile.
-8. Allocate the needed components to the project, make the final crafting roll, and request completion.
-9. The GM creates the finished Item or Vehicle. A reusable copy is archived in the appropriate Inventions Compendium.
-
-## Schematic checks
-
-- Level 1: Average, 6 hours, final crafting difficulty -1
-- Level 2: Hard, 6 hours, final crafting difficulty -2
-- Level 3: Daunting, 8 hours, final crafting difficulty -3
-- Level 4: Formidable, 12 hours, final crafting difficulty -4
-
-**Roll Schematic** performs the actual Actor-based Genesys roll and records it immediately. If the roll has no spendable Advantage, Threat, Triumph, or Despair, the module resolves it automatically. If spendable symbols remain, the project shows **Resolve / Spend Result** and locks those symbols to the originating chat roll.
-
-## Component gathering
-
-The module tracks abstract Tier 3, Tier 5, and Tier 7 component value in the world's configured currency unit.
-
-The default Workshop gathering guidance is:
-
-- Tier 3: Average check
-- Tier 5: Hard check
-- Tier 7: Daunting check
-- 100% Gathering Yield: **100 currency per net Success**
-
-The GM can change the Gathering Yield percentage in Module Settings. This is module guidance, not a Wonderous Inventions RAW rule.
-
-## Permissions
-
-Players only see Character Actors for which they have OWNER permission. GMs additionally have a separate **NPC / Test Actor** selector for supported non-player Actors. Project Journals remain GM-controlled; the inventor's player receives Observer permission and interacts through the module UI without directly editing the Journal source or roll history.
+- Foundry VTT 13
+- Genesys 0.2.19
 
 ## Installation
 
-In Foundry VTT Setup, open **Add-on Modules → Install Module** and paste this Manifest URL:
+Install **Genesys Inventions** directly through Foundry VTT using the module manifest.
 
-`https://raw.githubusercontent.com/Nyliss/foundryvtt-genesys-inventions/main/module.json`
+1. Open **Setup → Add-on Modules → Install Module**.
+2. Paste this URL into **Manifest URL**:
 
-Then enable **Genesys Inventions** in the world's **Manage Modules** screen.
+   `https://raw.githubusercontent.com/Nyliss/foundryvtt-genesys-inventions/main/module.json`
 
-## Launcher Macro
+3. Click **Install**.
+4. Open your Genesys world and enable **Genesys Inventions** under **Manage Modules**.
 
-When a GM loads the world with the module enabled, the module automatically creates a world Macro named **Genesys Inventions** in the Macro Directory. Players can drag it onto their own hotbars. The repository copy under `macros/` is kept as a manual fallback.
+Existing installations can use **Check for Updates** to update to v0.3.2.
