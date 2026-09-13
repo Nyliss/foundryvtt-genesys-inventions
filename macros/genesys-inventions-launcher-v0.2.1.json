@@ -1,0 +1,17 @@
+{
+  "name": "Genesys Inventions Launcher v0.2.1",
+  "type": "script",
+  "author": "SEDybGF796iD5pPP",
+  "img": "icons/svg/portal.svg",
+  "scope": "global",
+  "command": "const api = game.genesysInventions ?? game.modules.get('genesys-inventions')?.api; if (!api?.open) { ui.notifications.error('Genesys Inventions module is not active.'); } else { api.open(); }",
+  "folder": null,
+  "flags": {
+    "advanced-macros": {
+      "runForSpecificUser": ""
+    }
+  },
+  "ownership": {
+    "default": 0
+  }
+}
