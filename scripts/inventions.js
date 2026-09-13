@@ -1,5 +1,5 @@
 const MODULE_ID = "genesys-inventions";
-const MODULE_VERSION = "0.3.1";
+const MODULE_VERSION = "0.3.2";
 const SOCKET = `module.${MODULE_ID}`;
 const FLAG_SCOPE = MODULE_ID;
 const IMPORT_FLAG_SCOPE = "world";
@@ -542,9 +542,12 @@ function stockpileTotals(stockpile) {
 
 function gatheringEntryLabel(entry) {
   const domain = GATHERING_DOMAINS[entry?.domainId];
+  // User-entered names are intentionally preserved. Standard gathering batches
+  // are localized at render time so switching EN / UA updates old Stockpiles too.
   if (entry?.manualLabel) return String(entry.manualLabel);
+  if (domain) return domainText(domain, "componentType");
   if (configuredModuleLanguage() === "en" && entry?.componentTypeEn) return String(entry.componentTypeEn);
-  return String(entry?.componentType ?? domainText(domain, "componentType") ?? tx(`Tier ${entry?.tier ?? "?"} components`, `Компоненти Tier ${entry?.tier ?? "?"}`));
+  return String(entry?.componentType ?? tx(`Tier ${entry?.tier ?? "?"} components`, `Компоненти Tier ${entry?.tier ?? "?"}`));
 }
 
 function stockpileRowsHTML(actor, {limit = 30} = {}) {
@@ -555,7 +558,12 @@ function stockpileRowsHTML(actor, {limit = 30} = {}) {
     const domain = GATHERING_DOMAINS[entry.domainId];
     const source = entry.source === "manual" ? tx("Manual entry", "Ручний запис") : tx("Gathering roll", "Кидок на збір");
     const metaSkill = entry.skillName ? ` · ${esc(entry.skillName)}` : "";
-    const uses = entry.note ? `<div class="ginv-help">${esc(entry.note)}</div>` : (domain?.uses ? `<div class="ginv-help">${tx("Suitable for:", "Підходять для:")} ${esc(domainText(domain, "uses"))}</div>` : "");
+    // Gathering guidance is standard module data and therefore follows the
+    // currently selected language. Free-form manual notes remain as written.
+    const usesText = entry.source === "gathering" && domain
+      ? domainText(domain, "uses")
+      : (entry.note || (domain ? domainText(domain, "uses") : ""));
+    const uses = usesText ? `<div class="ginv-help">${entry.source === "gathering" || !entry.note ? `${tx("Suitable for:", "Підходять для:")} ` : ""}${esc(usesText)}</div>` : "";
     return `<div class="ginv-stockpile-row"><div><strong>${esc(gatheringEntryLabel(entry))}</strong><div class="ginv-sub">${esc(domainText(domain, "label") || entry.domainId || tx("Materials","Матеріали"))} · Tier ${integer(entry.tier)}${metaSkill} · ${esc(source)} · ${esc(moduleDate(entry.at))}</div>${uses}</div><div class="ginv-stockpile-value">${currencyAmount(entry.value)}</div></div>`;
   }).join("")}</div>`;
 }
@@ -1091,7 +1099,7 @@ function journalProjectHTML(project) {
   }).join("");
 
   const rollRows = (project.rolls ?? []).slice(0, 30).map(row =>
-    `<tr><td>${esc(row.label || row.skill || tx("Project Check", "Перевірка проєкту"))}</td><td>${esc(row.skill || tx("Skill", "Навичка"))}</td><td>${difficultyDisplayHTML(row.difficulty ?? 0, row.upgrades ?? 0)}</td><td>${esc(moduleDate(row.at))}</td><td>${esc(row.summary || tx("Result posted to chat", "Результат опубліковано в чаті"))}</td></tr>`
+    `<tr><td>${esc(row.label || row.skill || tx("Project Check", "Перевірка проєкту"))}</td><td>${esc(row.skill || tx("Skill", "Навичка"))}</td><td>${difficultyDisplayHTML(row.difficulty ?? 0, row.upgrades ?? 0)}</td><td>${esc(moduleDate(row.at))}</td><td>${esc(projectRollSummary(row))}</td></tr>`
   ).join("");
 
   const log = (project.log ?? []).slice(0, 20).map(row =>
@@ -1399,10 +1407,12 @@ async function handleGMRequest(payload) {
       entry.at = Number(chatMessage.timestamp ?? entry.at) || Date.now();
       entry.userId = payload.userId;
       entry.chatMessageUuid = chatMessage.uuid ?? entry.chatMessageUuid ?? null;
-      entry.summary = chatMessageSummary(chatMessage);
+      const rollMeta = chatMessage.getFlag?.(FLAG_SCOPE, "projectRoll") ?? {};
+      entry.result = narrativeResultFromMessage(chatMessage, rollMeta.automatic ?? {}) ?? entry.result ?? null;
+      entry.summary = "";
       project.rolls.unshift(entry);
       project.rolls = project.rolls.slice(0, 50);
-      addLog(project, "roll", `${entry.label || entry.skill || tx("Project check", "Перевірка проєкту")} · ${difficultyLabel(entry.difficulty ?? 0)}${entry.summary ? ` · ${entry.summary}` : ""}.`, payload.userId);
+      addLog(project, "roll", `${entry.label || entry.skill || tx("Project check", "Перевірка проєкту")} · ${difficultyLabel(entry.difficulty ?? 0)}.`, payload.userId);
       let schematicResolution = null;
       if (entry.kind === "schematic") {
         schematicResolution = registerSchematicRollOnProject(project, chatMessage, entry, payload.userId);
@@ -1545,6 +1555,71 @@ function chatMessageSummary(message) {
   const text = stripHTML(message?.content ?? "").replace(/\s+/g, " ").trim();
   if (!text) return "Result posted to chat";
   return text.length > 360 ? `${text.slice(0, 357)}...` : text;
+}
+
+function normalizedNarrativeResult(value = {}) {
+  return {
+    success: Math.max(0, integer(value.success, 0)),
+    failure: Math.max(0, integer(value.failure, 0)),
+    advantage: Math.max(0, integer(value.advantage, 0)),
+    threat: Math.max(0, integer(value.threat, 0)),
+    triumph: Math.max(0, integer(value.triumph, 0)),
+    despair: Math.max(0, integer(value.despair, 0))
+  };
+}
+
+function narrativeResultFromMessage(message, automatic = {}) {
+  const roll = primaryMessageRoll(message);
+  if (!roll) return null;
+  try {
+    return normalizedNarrativeResult(netNarrativeResult(genesysRollSymbols(roll), automatic));
+  } catch (_) {
+    return null;
+  }
+}
+
+function narrativeResultText(result) {
+  if (!result) return "";
+  const r = normalizedNarrativeResult(result);
+  const bits = [];
+  if (r.success) bits.push(`${tx("Successes", "Успіхи")}: ${r.success}`);
+  if (r.failure) bits.push(`${tx("Failures", "Провали")}: ${r.failure}`);
+  if (r.advantage) bits.push(`${tx("Advantage", "Переваги")}: ${r.advantage}`);
+  if (r.threat) bits.push(`${tx("Threat", "Загрози")}: ${r.threat}`);
+  if (r.triumph) bits.push(`${tx("Triumph", "Тріумф")}: ${r.triumph}`);
+  if (r.despair) bits.push(`${tx("Despair", "Відчай")}: ${r.despair}`);
+  return bits.join(" · ") || tx("No uncanceled results", "Немає нескансельованих результатів");
+}
+
+function projectRollResult(row) {
+  if (row?.result && typeof row.result === "object") return normalizedNarrativeResult(row.result);
+  const message = row?.chatMessageId ? game.messages?.get?.(row.chatMessageId) : null;
+  if (!message) return null;
+  const meta = message.getFlag?.(FLAG_SCOPE, "projectRoll") ?? {};
+  return narrativeResultFromMessage(message, meta.automatic ?? {});
+}
+
+function projectRollSummary(row) {
+  const structured = projectRollResult(row);
+  if (structured) return narrativeResultText(structured);
+
+  // Legacy v0.3.1 records stored the complete chat-card text, which collapsed
+  // headings and dice into one unreadable line. Never show that payload again.
+  const legacy = String(row?.summary ?? "").replace(/\s+/g, " ").trim();
+  const looksLikeCollapsedCard = /(ROLL RESULTS|РЕЗУЛЬТАТ КИДКА|SUMMARY|ПІДСУМОК|DICE|КУБИКИ)/i.test(legacy);
+  if (legacy && !looksLikeCollapsedCard) return legacy.length > 180 ? `${legacy.slice(0, 177)}...` : legacy;
+  return tx("Result recorded in Chat.", "Результат записано в чаті.");
+}
+
+function characteristicAbbreviation(key) {
+  return ({
+    brawn: "Bra",
+    agility: "Agi",
+    intellect: "Int",
+    cunning: "Cun",
+    willpower: "Wil",
+    presence: "Pre"
+  })[String(key ?? "").toLowerCase()] ?? "";
 }
 
 function registeredGenesysDieFormula(denomination) {
@@ -1726,33 +1801,17 @@ async function narrativeSymbolHTML(code) {
   }
 }
 
-function dieShapeKind(denomination) {
-  const d = String(denomination ?? "").toLowerCase();
-  if (d === "b" || d === "s") return "d6";
-  if (d === "a" || d === "i") return "d8";
-  if (d === "p" || d === "c") return "d12";
-  return "d6";
-}
-
-function genesysDieShapeSVG(denomination) {
-  const kind = dieShapeKind(denomination);
-  if (kind === "d8") {
-    return `<svg class="ginv-die-shape shape-d8" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><polygon points="16,1.5 30.5,16 16,30.5 1.5,16" /></svg>`;
-  }
-  if (kind === "d12") {
-    return `<svg class="ginv-die-shape shape-d12" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><polygon points="8,2 24,2 31,16 24,30 8,30 1,16" /></svg>`;
-  }
-  return `<svg class="ginv-die-shape shape-d6" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect x="2" y="2" width="28" height="28" rx="3.5" ry="3.5" /></svg>`;
-}
-
 async function genesysDieFaceHTML(die) {
   const denomination = String(die?.denomination ?? "").toLowerCase();
   const rawFace = String(die?.face ?? "").trim();
   const face = rawFace ? await narrativeSymbolHTML(rawFace) : "";
-  return `<span class="ginv-chat-die die-${esc(denomination)} ${rawFace ? "" : "blank"}">${genesysDieShapeSVG(denomination)}<span class="ginv-die-face-symbols">${face}</span></span>`;
+  // Use a deliberately conservative square chip here. FVTT-Genesys' native
+  // skill card is rendered by its private DicePrompt workflow; reproducing its
+  // private die-font layout from a third-party module proved browser-fragile.
+  return `<span class="ginv-chat-die die-${esc(denomination)} ${rawFace ? "" : "blank"}"><span class="ginv-die-face-symbols">${face}</span></span>`;
 }
 
-async function genesysChatCardHTML({actor, skillName, label, difficulty, upgrades = 0, roll, automatic = {}, contextHTML = ""}) {
+async function genesysChatCardHTML({actor, skillName, characteristicKey = "", label, difficulty, upgrades = 0, roll, automatic = {}, contextHTML = ""}) {
   const symbols = genesysRollSymbols(roll);
   const net = netNarrativeResult(symbols, automatic);
   const visibleCodes = [
@@ -1775,13 +1834,14 @@ async function genesysChatCardHTML({actor, skillName, label, difficulty, upgrade
   if (automatic.success) automaticBits.push(`${automatic.success} ${tx("automatic Success", "автоматичний Успіх")}`);
   if (automatic.advantage) automaticBits.push(`${automatic.advantage} ${tx("automatic Advantage", "автоматична Перевага")}`);
   if (automatic.threat) automaticBits.push(`${automatic.threat} ${tx("automatic Threat", "автоматична Загроза")}`);
-  return `<div class="ginv-chat-card"><div class="ginv-chat-rolling">${tx("Rolling", "Кидок")} <strong>${esc(skillName)}</strong>...</div><div class="ginv-chat-context">${esc(label)} · ${esc(difficultyTextWithUpgrades(difficulty, upgrades))}${automaticBits.length ? ` · ${esc(automaticBits.join(", "))}` : ""}</div>${contextHTML}<h3>${tx("ROLL RESULTS", "РЕЗУЛЬТАТ КИДКА")}</h3><div class="ginv-chat-results">${resultSymbols || "–"}</div><h3>${tx("SUMMARY", "ПІДСУМОК")}</h3><div class="ginv-chat-summary">${rows.join("")}</div><h3>${tx("DICE", "КУБИКИ")}</h3><div class="ginv-chat-dice">${dieFaces.join("") || tx("No dice", "Немає кубиків")}</div></div>`;
+  const skillDisplay = `${skillName}${characteristicAbbreviation(characteristicKey) ? ` (${characteristicAbbreviation(characteristicKey)})` : ""}`;
+  return `<div class="ginv-chat-card"><div class="ginv-chat-rolling">${tx("Rolling", "Кидок")} <strong>${esc(skillDisplay)}</strong>...</div><div class="ginv-chat-context">${esc(label)} · ${esc(difficultyTextWithUpgrades(difficulty, upgrades))}${automaticBits.length ? ` · ${esc(automaticBits.join(", "))}` : ""}</div>${contextHTML}<h3>${tx("ROLL RESULTS", "РЕЗУЛЬТАТ КИДКА")}</h3><div class="ginv-chat-results">${resultSymbols || "–"}</div><h3>${tx("SUMMARY", "ПІДСУМОК")}</h3><div class="ginv-chat-summary">${rows.join("")}</div><h3>${tx("DICE", "КУБИКИ")}</h3><div class="ginv-chat-dice">${dieFaces.join("") || tx("No dice", "Немає кубиків")}</div></div>`;
 }
 
-async function executeGenesysProjectRoll({journal, actor, skillName, difficulty, upgrades = 0, kind, label, pool, prompt, automatic = {}}) {
+async function executeGenesysProjectRoll({journal, actor, skillName, characteristicKey = "", difficulty, upgrades = 0, kind, label, pool, prompt, automatic = {}}) {
   const formula = genesysRollFormula(pool);
   const roll = await (new Roll(formula)).evaluate();
-  const content = await genesysChatCardHTML({actor, skillName, label, difficulty, upgrades, roll, automatic});
+  const content = await genesysChatCardHTML({actor, skillName, characteristicKey, label, difficulty, upgrades, roll, automatic});
   closeRollPrompt(prompt);
   const message = await ChatMessage.create({
     user: game.user.id,
@@ -1790,11 +1850,13 @@ async function executeGenesysProjectRoll({journal, actor, skillName, difficulty,
     style: CONST.CHAT_MESSAGE_STYLES?.OTHER ?? 0,
     rolls: [roll],
     sound: CONFIG.sounds?.dice,
-    flags: {[FLAG_SCOPE]: {projectRoll: {journalId: journal.id, kind, skill: skillName, difficulty, upgrades, label, formula}}}
+    flags: {[FLAG_SCOPE]: {projectRoll: {journalId: journal.id, kind, skill: skillName, characteristicKey, difficulty, upgrades, label, formula, automatic: deepClone(automatic)}}}
   });
   const entry = {
-    id: randomId(), at: Number(message?.timestamp) || Date.now(), skill: skillName, difficulty, upgrades, kind, label,
-    chatMessageId: message?.id ?? null, chatMessageUuid: message?.uuid ?? null, summary: chatMessageSummary(message)
+    id: randomId(), at: Number(message?.timestamp) || Date.now(), skill: skillName, characteristicKey, difficulty, upgrades, kind, label,
+    chatMessageId: message?.id ?? null, chatMessageUuid: message?.uuid ?? null,
+    result: normalizedNarrativeResult(netNarrativeResult(genesysRollSymbols(roll), automatic)),
+    summary: ""
   };
   let schematicResolution = null;
   if (game.user.isGM) {
@@ -1874,7 +1936,7 @@ async function openProjectRollPrompt(journal, project, {kind = "crafting", skill
       const button = prompt.querySelector("[data-roll-confirm]");
       if (button) button.disabled = true;
       try {
-        const outcome = await executeGenesysProjectRoll({journal, actor, skillName: resolvedSkillName, difficulty: resolvedDifficulty, upgrades: resolvedUpgrades, kind, label: resolvedLabel, pool, prompt, automatic: isSchematic ? {} : {success: schematicEffects(project).autoSuccess, advantage: schematicEffects(project).autoAdvantage, threat: schematicEffects(project).autoThreat}});
+        const outcome = await executeGenesysProjectRoll({journal, actor, skillName: resolvedSkillName, characteristicKey: skill.charKey, difficulty: resolvedDifficulty, upgrades: resolvedUpgrades, kind, label: resolvedLabel, pool, prompt, automatic: isSchematic ? {} : {success: schematicEffects(project).autoSuccess, advantage: schematicEffects(project).autoAdvantage, threat: schematicEffects(project).autoThreat}});
         if (isSchematic && outcome?.schematicResolution) {
           if (outcome.schematicResolution.pending) {
             ui.notifications.info(`Schematic Level ${outcome.schematicResolution.level} roll recorded. Resolve the remaining symbols in the project to finish the schematic.`);
@@ -1938,7 +2000,8 @@ async function captureCraftingChatMessage(message) {
     label: pending.label ?? pending.skill,
     chatMessageId: message.id ?? null,
     chatMessageUuid: message.uuid ?? null,
-    summary: chatMessageSummary(message)
+    result: narrativeResultFromMessage(message),
+    summary: ""
   };
   try {
     if (game.user?.isGM) {
@@ -1948,7 +2011,7 @@ async function captureCraftingChatMessage(message) {
       project.rolls ??= [];
       project.rolls.unshift({...roll, userId});
       project.rolls = project.rolls.slice(0, 50);
-      addLog(project, "roll", `${roll.label || roll.skill} · ${difficultyLabel(roll.difficulty)} · ${roll.summary}.`, userId);
+      addLog(project, "roll", `${roll.label || roll.skill} · ${difficultyLabel(roll.difficulty)}.`, userId);
       await saveProject(journal, project);
     } else {
       await requestGM("appendRollLog", {journalId: pending.journalId, roll});
@@ -2080,7 +2143,7 @@ async function openGatheringRollPrompt(actor, {domainId, skillName, difficulty, 
         ? `<strong>${tx("Gathered:", "Здобуто:")}</strong> ${currencyAmount(gatheredValue)} · Tier ${normalizedTier} (${net.success} net Success × ${currencyAmount(perSuccess)})`
         : `<strong>${tx("Gathered:", "Здобуто:")}</strong> 0 ${esc(worldCurrencyLabel())} · ${tx("no successful find", "успішної знахідки немає")}.`;
       const contextHTML=`<div class="ginv-chat-material"><strong>${esc(domainText(domain,"componentType"))}</strong> · Tier ${normalizedTier}<br><span>${tx("Suitable for:", "Підходять для:")} ${esc(domainText(domain,"uses"))}</span><br><span>${resultLine}</span></div>`;
-      const content=await genesysChatCardHTML({actor,skillName,label:`${tx("Gather Components", "Збір компонентів")} · ${domainText(domain,"label")}`,difficulty:normalizedDifficulty,roll,contextHTML});
+      const content=await genesysChatCardHTML({actor,skillName,characteristicKey:skill.charKey,label:`${tx("Gather Components", "Збір компонентів")} · ${domainText(domain,"label")}`,difficulty:normalizedDifficulty,roll,contextHTML});
       const message=await ChatMessage.create({user:game.user.id,speaker:ChatMessage.getSpeaker({actor}),content,style:CONST.CHAT_MESSAGE_STYLES?.OTHER??0,rolls:[roll],sound:CONFIG.sounds?.dice,flags:{[FLAG_SCOPE]:{gatheringRoll:{actorId:actor.id,domainId,tier:normalizedTier,skillName,difficulty:normalizedDifficulty,formula}}}});
       if (gatheredValue > 0) {
         if (game.user.isGM) {
@@ -2482,14 +2545,45 @@ function qualityBrowserHTML(state, libraries) {
     const rated = qualityRated(q);
     const checked = state.qualities.has(q.id);
     const rating = state.qualities.get(q.id) ?? 1;
-    const searchText = norm(`${q.name} ${stripHTML(q.system?.description ?? "")}`);
+    const description = stripHTML(q.system?.description ?? "");
+    const searchText = norm(`${q.name} ${description}`);
+    const preview = description.length > 220 ? `${description.slice(0, 217)}...` : description;
     return `<div class="ginv-qrow ${checked ? "selected" : ""}" data-quality-row data-quality-search-text="${esc(searchText)}">
       <input type="checkbox" data-quality="${q.id}" ${checked ? "checked" : ""}>
-      <div><strong>${esc(q.name)}</strong><div class="ginv-sub">${esc(stripHTML(q.system?.description ?? "")).slice(0, 180)}</div></div>
+      <div class="ginv-qinfo" tabindex="0" data-quality-tooltip="${esc(description)}"><strong>${esc(q.name)}</strong><div class="ginv-sub ginv-qpreview">${esc(preview)}</div></div>
       ${rated ? `<input type="number" data-quality-rating="${q.id}" min="1" max="10" step="1" value="${rating}" ${checked ? "" : "disabled"}>` : `<span class="ginv-sub">${tx("Unrated","Без рейтингу")}</span>`}
     </div>`;
   }).join("");
   return `<div class="ginv-field"><label>${tx("Search Qualities","Пошук властивостей")}</label><input type="search" data-quality-search value="${esc(state.qualitySearch)}" placeholder="${tx("Search","Пошук")}"></div><div class="ginv-list ginv-quality-grid" data-ginv-scroll-key="quality-list">${rows || `<div class="ginv-listrow">${tx("No Qualities are available for this item type.","Для цього типу предмета немає доступних властивостей.")}</div>`}</div><div class="ginv-sub" data-quality-empty hidden>${tx("No matching Qualities.","Нічого не знайдено.")}</div>`;
+}
+
+function bindQualityTooltips(root) {
+  let tooltip = null;
+  const remove = () => { tooltip?.remove(); tooltip = null; };
+  const show = target => {
+    remove();
+    const text = String(target?.dataset?.qualityTooltip ?? "").trim();
+    if (!text) return;
+    tooltip = document.createElement("div");
+    tooltip.className = "ginv-floating-tooltip";
+    tooltip.innerHTML = `<strong>${esc(target.querySelector("strong")?.textContent ?? "")}</strong><div>${esc(text)}</div>`;
+    document.body.appendChild(tooltip);
+    const rect = target.getBoundingClientRect();
+    const tipRect = tooltip.getBoundingClientRect();
+    const margin = 10;
+    let left = Math.min(window.innerWidth - tipRect.width - margin, Math.max(margin, rect.left + 28));
+    let top = rect.bottom + 7;
+    if (top + tipRect.height > window.innerHeight - margin) top = Math.max(margin, rect.top - tipRect.height - 7);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  };
+  root.querySelectorAll("[data-quality-tooltip]").forEach(node => {
+    node.addEventListener("mouseenter", () => show(node));
+    node.addEventListener("mouseleave", remove);
+    node.addEventListener("focus", () => show(node));
+    node.addEventListener("blur", remove);
+  });
+  root.addEventListener("remove", remove, {once: true});
 }
 
 function applyQualityFilter(overlay, state) {
@@ -2634,7 +2728,7 @@ async function openNewInvention(actor, parentState, goHome) {
     bindField(overlay,"[data-quality-search]",v=>{state.qualitySearch=v;applyQualityFilter(overlay,state);});
     overlay.querySelectorAll("[data-quality]").forEach(box => box.addEventListener("change", () => { if (box.checked) state.qualities.set(box.dataset.quality,state.qualities.get(box.dataset.quality)??1); else state.qualities.delete(box.dataset.quality); const row=box.closest(".ginv-qrow"); row?.classList.toggle("selected",box.checked); const rating=row?.querySelector("[data-quality-rating]"); if(rating) rating.disabled=!box.checked; }));
     overlay.querySelectorAll("[data-quality-rating]").forEach(input=>input.addEventListener("input",()=>{if(state.qualities.has(input.dataset.qualityRating))state.qualities.set(input.dataset.qualityRating,Math.max(1,integer(input.value,1)));}));
-    applyBaseItemFilter(); applyQualityFilter(overlay,state); if(renderState) restoreRenderState(overlay,renderState);
+    applyBaseItemFilter(); applyQualityFilter(overlay,state); bindQualityTooltips(overlay); if(renderState) restoreRenderState(overlay,renderState);
 
     overlay.querySelector("[data-submit]")?.addEventListener("click", async () => {
       if (state.busy) return; state.busy=true;state.message="";render({preserveUI:true});
@@ -3138,7 +3232,7 @@ async function openProject(journal, parentState, returnToWorkshop) {
     const enoughComponents = approved && acquired.tier3 >= components.tier3 && acquired.tier5 >= components.tier5 && acquired.tier7 >= components.tier7;
     const entries = (project.schematic?.entries ?? []).map(entry => `<tr><td>${entry.success ? `${tx("Level","Рівень")} ${entry.level}` : `${tx("Failed","Провал")} L${entry.attemptedLevel}`}</td><td>${entry.success ? tx("Success","Успіх") : tx("Failed","Провал")}</td><td>${esc(moduleDate(entry.at))}</td></tr>`).join("");
     const log = (project.log ?? []).slice(0, 30).map(row => `<div class="ginv-logrow"><strong>${esc(moduleDate(row.at))}</strong> · ${esc(userName(row.userId))}<div>${esc(row.text)}</div></div>`).join("");
-    const rolls = (project.rolls ?? []).slice(0, 20).map(row => `<div class="ginv-rollrow"><div><strong>${esc(row.label || row.skill || tx("Project Check","Перевірка проєкту"))}</strong> · ${esc(row.skill || tx("Skill","Навичка"))} · ${difficultyDisplayHTML(row.difficulty ?? 0, row.upgrades ?? 0)} · ${esc(moduleDate(row.at))}</div><div class="ginv-help">${esc(row.summary || tx("Result recorded in chat.","Результат записано в чаті."))}</div></div>`).join("");
+    const rolls = (project.rolls ?? []).slice(0, 20).map(row => `<div class="ginv-rollrow"><div><strong>${esc(row.label || row.skill || tx("Project Check","Перевірка проєкту"))}</strong> · ${esc(row.skill || tx("Skill","Навичка"))} · ${difficultyDisplayHTML(row.difficulty ?? 0, row.upgrades ?? 0)} · ${esc(moduleDate(row.at))}</div><div class="ginv-help">${esc(projectRollSummary(row))}</div></div>`).join("");
     const completedItem = project.completion?.itemId ? actor?.items?.get(project.completion.itemId) : null;
     const completedVehicle = project.completion?.vehicleActorId ? game.actors.get(project.completion.vehicleActorId) : null;
     const archivedUuid = project.completion?.compendiumUuid ?? null;

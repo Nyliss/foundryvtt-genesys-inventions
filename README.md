@@ -1,7 +1,20 @@
-# Genesys Inventions v0.3.1
+# Genesys Inventions v0.3.2
 
 Player-facing invention project manager for Foundry VTT 13.x + Genesys 0.2.19, based on **Wonderous Inventions** with clearly marked Workshop guidance where the supplement leaves adjudication to the GM.
 
+
+
+## v0.3.2
+
+### Quality browser, roll log, dice display, and Stockpile localization
+
+- Item Qualities now use a single-column browser with more room for descriptions.
+- Hovering or focusing a Quality shows its full description in a floating tooltip.
+- Project Roll records now show structured narrative results instead of flattening the entire chat card into unreadable text.
+- Existing v0.3.1 roll records are cleaned at display time when their original Chat roll is still available.
+- Inventions continues to roll real FVTT-Genesys narrative dice, but its custom chat card now uses reliable color-coded square die faces instead of trying to reproduce the system's private native die silhouettes.
+- Roll headings show the governing Characteristic abbreviation when available, such as **Ремесло (Cun)**.
+- Standard gathered Component Stockpile entries now localize dynamically when switching EN / UA. Manual custom names and notes remain exactly as entered.
 
 ## v0.3.1
 

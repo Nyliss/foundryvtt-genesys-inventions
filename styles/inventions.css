@@ -1314,3 +1314,112 @@
 .ginv-home-character [data-npc-count] {
   margin-top: 1px;
 }
+
+
+/* ---------- v0.3.2 quality browser, stable dice chips, and hover help ---------- */
+
+.ginv-quality-grid {
+  grid-template-columns: 1fr !important;
+}
+
+.ginv-qrow {
+  grid-template-columns: 26px minmax(0, 1fr) 96px;
+  align-items: start;
+  min-height: 72px;
+}
+
+.ginv-qrow:nth-child(odd) {
+  border-right: 0 !important;
+}
+
+.ginv-qinfo {
+  min-width: 0;
+  cursor: help;
+  outline: none;
+}
+
+.ginv-qinfo:focus strong,
+.ginv-qinfo:hover strong {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.ginv-qpreview {
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.ginv-floating-tooltip {
+  position: fixed;
+  z-index: 10050;
+  width: min(390px, calc(100vw - 24px));
+  max-height: min(320px, calc(100vh - 24px));
+  overflow: auto;
+  padding: 10px 12px;
+  color: var(--text, #eee);
+  background: var(--bg, #1f252d);
+  border: 1px solid var(--border, #677586);
+  border-radius: 8px;
+  box-shadow: 0 10px 32px rgba(0,0,0,.55);
+  font-size: 13px;
+  line-height: 1.42;
+  pointer-events: none;
+}
+
+.ginv-floating-tooltip strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 1.05em;
+}
+
+/* The Genesys system's native DicePrompt is internal to the system and is not
+   exposed as a stable module API. Use intentionally simple, reliable square
+   face chips here rather than attempting to clone its private die-font layout. */
+.ginv-chat-die {
+  position: relative;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 29px !important;
+  height: 29px !important;
+  min-width: 29px !important;
+  min-height: 29px !important;
+  padding: 0 !important;
+  border: 1.5px solid #191919 !important;
+  border-radius: 5px !important;
+  background: var(--die-color, #777) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.3) !important;
+  overflow: hidden !important;
+  vertical-align: middle;
+}
+
+.ginv-chat-die .ginv-die-shape {
+  display: none !important;
+}
+
+.ginv-chat-die .ginv-die-face-symbols {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  color: #111;
+  font-size: 1.02em;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: none;
+}
+
+.ginv-chat-die.die-s .ginv-die-face-symbols {
+  color: #fff;
+}
+
+.ginv-chat-die.blank {
+  opacity: .9;
+}
+
+.ginv-chat-die.blank .ginv-die-face-symbols {
+  display: none;
+}
