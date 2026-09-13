@@ -65,7 +65,7 @@ Install **Genesys Inventions** directly through Foundry VTT using the module man
 1. Open **Setup → Add-on Modules → Install Module**.
 2. Paste this URL into **Manifest URL**:
 
-   `https://github.com/Nyliss/foundryvtt-genesys-inventions/releases/latest/download/module.json`
+   `https://raw.githubusercontent.com/Nyliss/foundryvtt-genesys-inventions/main/module.json`
 
 3. Click **Install**.
 4. Open your Genesys world and enable **Genesys Inventions** under **Manage Modules**.
