@@ -1166,3 +1166,64 @@
 @media (max-width: 900px) {
   .ginv-gather-reference { grid-template-columns: 1fr; }
 }
+
+/* v0.2.3: component stockpile and clearer Genesys die silhouettes. */
+.ginv-stockpile-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ginv-stockpile-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.ginv-stockpile-value {
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.ginv-chat-die {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* d8 Ability / Difficulty */
+.ginv-chat-die.die-a,
+.ginv-chat-die.die-i {
+  clip-path: polygon(50% 0%, 96% 50%, 50% 100%, 4% 50%);
+  border-radius: 0;
+}
+
+/* d12 Proficiency / Challenge. This is intentionally a compact visual approximation
+   of the system's Genesys die silhouette rather than a generic rounded square. */
+.ginv-chat-die.die-p,
+.ginv-chat-die.die-c {
+  clip-path: polygon(25% 3%, 75% 3%, 98% 27%, 98% 73%, 75% 97%, 25% 97%, 2% 73%, 2% 27%);
+  border-radius: 0;
+}
+
+/* d6 Boost / Setback */
+.ginv-chat-die.die-b,
+.ginv-chat-die.die-s {
+  clip-path: none;
+  border-radius: 5px;
+}
+
+.ginv-chat-die.blank {
+  opacity: .88;
+}

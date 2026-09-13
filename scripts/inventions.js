@@ -1,5 +1,5 @@
 const MODULE_ID = "genesys-inventions";
-const MODULE_VERSION = "0.2.1";
+const MODULE_VERSION = "0.2.3";
 const SOCKET = `module.${MODULE_ID}`;
 const FLAG_SCOPE = MODULE_ID;
 const IMPORT_FLAG_SCOPE = "world";
@@ -45,6 +45,13 @@ const COMPONENT_PERCENTAGES = Object.freeze({
   9: [40, 40, 20],
   10: [20, 50, 30]
 });
+
+// Workshop guidance for field gathering. Wonderous Inventions does not define a
+// universal harvesting yield, so the module uses a deliberately simple default
+// derived from the supplement's 25% / 15% / 5% deconstruction recovery rates.
+// Treat each net Success as one notional 1,000-currency resource opportunity.
+const GATHERING_YIELD_PER_SUCCESS = Object.freeze({3: 250, 5: 150, 7: 50});
+const GATHERING_RECOMMENDED_DIFFICULTY = Object.freeze({3: 2, 5: 3, 7: 4});
 
 const DECONSTRUCTION_PERCENTAGES = Object.freeze({
   0: [95, 0, 0],
@@ -288,6 +295,72 @@ function difficultyLabel(value) {
   return ({0: "Simple", 1: "Easy", 2: "Average", 3: "Hard", 4: "Daunting", 5: "Formidable"})[Number(value)] ?? `Difficulty ${value}`;
 }
 
+function gatheringYieldPerSuccess(tier) {
+  return Number(GATHERING_YIELD_PER_SUCCESS[Number(tier)] ?? 0);
+}
+
+function recommendedGatheringDifficulty(tier) {
+  return Number(GATHERING_RECOMMENDED_DIFFICULTY[Number(tier)] ?? 2);
+}
+
+function actorComponentStockpile(actor) {
+  const stored = actor?.getFlag?.(FLAG_SCOPE, "componentStockpile") ?? {};
+  const entries = Array.isArray(stored.entries) ? stored.entries : [];
+  return {
+    schemaVersion: 1,
+    entries: deepClone(entries).slice(0, 200)
+  };
+}
+
+function stockpileTotals(stockpile) {
+  const totals = {tier3: 0, tier5: 0, tier7: 0, total: 0};
+  for (const entry of stockpile?.entries ?? []) {
+    const tier = Number(entry?.tier);
+    const value = Math.max(0, Number(entry?.value ?? 0) || 0);
+    if (tier === 3) totals.tier3 += value;
+    if (tier === 5) totals.tier5 += value;
+    if (tier === 7) totals.tier7 += value;
+    totals.total += value;
+  }
+  return totals;
+}
+
+function gatheringEntryLabel(entry) {
+  const domain = GATHERING_DOMAINS[entry?.domainId];
+  return String(entry?.componentType ?? domain?.componentType ?? `Tier ${entry?.tier ?? "?"} components`);
+}
+
+function stockpileRowsHTML(actor, {limit = 30} = {}) {
+  const stockpile = actorComponentStockpile(actor);
+  const entries = stockpile.entries.slice().sort((a, b) => Number(b.at ?? 0) - Number(a.at ?? 0)).slice(0, limit);
+  if (!entries.length) return `<div class="ginv-sub">No gathered components recorded yet.</div>`;
+  return `<div class="ginv-stockpile-list">${entries.map(entry => {
+    const domain = GATHERING_DOMAINS[entry.domainId];
+    return `<div class="ginv-stockpile-row"><div><strong>${esc(gatheringEntryLabel(entry))}</strong><div class="ginv-sub">${esc(domain?.label ?? entry.domainId ?? "Materials")} · Tier ${integer(entry.tier)} · ${esc(entry.skillName ?? "Skill")} · ${esc(new Date(entry.at ?? Date.now()).toLocaleString())}</div>${domain?.uses ? `<div class="ginv-help">Підходять для: ${esc(domain.uses)}</div>` : ""}</div><div class="ginv-stockpile-value">${currencyAmount(entry.value)}</div></div>`;
+  }).join("")}</div>`;
+}
+
+async function addStockpileEntryAsGM(actor, entry) {
+  const stockpile = actorComponentStockpile(actor);
+  stockpile.entries.unshift({
+    id: String(entry.id ?? randomId()),
+    at: Number(entry.at ?? Date.now()) || Date.now(),
+    domainId: String(entry.domainId ?? ""),
+    componentType: String(entry.componentType ?? ""),
+    tier: [3,5,7].includes(integer(entry.tier)) ? integer(entry.tier) : 3,
+    value: Math.max(0, Number(entry.value ?? 0) || 0),
+    skillName: String(entry.skillName ?? ""),
+    difficulty: Math.max(0, integer(entry.difficulty, 0)),
+    successes: Math.max(0, integer(entry.successes, 0)),
+    chatMessageId: entry.chatMessageId ?? null,
+    chatMessageUuid: entry.chatMessageUuid ?? null,
+    userId: entry.userId ?? null
+  });
+  stockpile.entries = stockpile.entries.slice(0, 200);
+  await actor.setFlag(FLAG_SCOPE, "componentStockpile", stockpile);
+  return stockpile;
+}
+
 function storedTheme() {
   try {
     const value = localStorage.getItem(THEME_KEY);
@@ -437,6 +510,26 @@ function isOwnerCharacter(actor, user = game.user) {
   );
 }
 
+function isSupportedInventorActor(actor) {
+  if (!actor || actor.type === "vehicle") return false;
+  const name = String(actor.name ?? "").trim();
+  if (/^\(?quick send to chat\)?$/i.test(name)) return false;
+  return ["character", "rival", "nemesis", "minion"].includes(String(actor.type ?? ""));
+}
+
+function canUseInventorActor(actor, user = game.user) {
+  if (!actor || !user) return false;
+  if (user.isGM) return isSupportedInventorActor(actor);
+  return isOwnerCharacter(actor, user);
+}
+
+function hasPlayerOwner(actor) {
+  if (!actor) return false;
+  return game.users
+    .filter(user => !user.isGM)
+    .some(user => actor.testUserPermission?.(user, ownerLevel()));
+}
+
 function ownerCharacters(user = game.user) {
   const controlledActorIds = new Set(
     (canvas?.tokens?.controlled ?? [])
@@ -451,6 +544,20 @@ function ownerCharacters(user = game.user) {
       const bControlled = controlledActorIds.has(b.id) ? 1 : 0;
       return bControlled - aControlled || a.name.localeCompare(b.name);
     });
+}
+
+function playerInventorActors() {
+  if (!game.user?.isGM) return ownerCharacters(game.user);
+  return game.actors
+    .filter(actor => isPlayableCharacterActor(actor) && hasPlayerOwner(actor))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function gmNpcInventorActors() {
+  if (!game.user?.isGM) return [];
+  return game.actors
+    .filter(actor => isSupportedInventorActor(actor) && !hasPlayerOwner(actor))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function canViewDocument(document, user = game.user) {
@@ -899,9 +1006,8 @@ async function createProjectAsGM(payload) {
   const user = game.users.get(payload.userId);
   const actor = game.actors.get(payload.actorId);
   if (!user || !actor) throw new Error("User or character no longer exists.");
-  if (actor.type !== "character") throw new Error("Inventions can only be assigned to Character actors.");
-  if (!actor.testUserPermission(user, ownerLevel()) && !user.isGM) {
-    throw new Error("The requesting user does not own that character.");
+  if (!canUseInventorActor(actor, user)) {
+    throw new Error(user.isGM ? "That Actor cannot be used as an inventor." : "The requesting user does not own that Character.");
   }
 
   const project = sanitizeSubmittedProject(payload.project, user.id, actor.id);
@@ -960,24 +1066,41 @@ function mergePlayerProjectUpdate(stored, incoming, userId) {
     if (next.schematic.entries.length >= 30) throw new Error("Too many Schematic history entries.");
     const expectedLevel = schematicEffects(next).level + 1;
     if (expectedLevel > 4) throw new Error("This project already has a Level 4 Schematic.");
+    const pending = deepClone(next.schematic.pending ?? null);
+    if (!pending) throw new Error("A Schematic result can only be resolved from a recorded Schematic roll.");
+    if (integer(pending.level) !== expectedLevel) throw new Error("Pending Schematic level does not match project progression.");
     const entry = deepClone(rawEntry ?? {});
+    if (String(entry.chatMessageId ?? "") !== String(pending.chatMessageId ?? "")) throw new Error("Schematic result must match the recorded chat roll.");
     entry.id = String(entry.id || randomId());
-    entry.at = Number(entry.at) || Date.now();
+    entry.at = Number(pending.at) || Date.now();
     entry.userId = userId;
+    entry.success = Boolean(pending.success);
+    entry.result = deepClone(pending.result ?? {});
+    if (!entry.success) entry.spends = {};
     if (entry.success) {
-      if (integer(entry.level) !== expectedLevel) throw new Error("Invalid Schematic level progression.");
+      const spendingState = {spends: deepClone(entry.spends ?? {})};
+      const pos = spendBudget(spendingState, "positive");
+      const neg = spendBudget(spendingState, "negative");
+      if (pos.advantage > Number(pending.result?.advantage ?? 0) || pos.triumph > Number(pending.result?.triumph ?? 0) || neg.threat > Number(pending.result?.threat ?? 0) || neg.despair > Number(pending.result?.despair ?? 0)) {
+        throw new Error("Schematic spending exceeds the symbols on the recorded roll.");
+      }
+      for (const option of [...POSITIVE_SPENDS, ...NEGATIVE_SPENDS]) {
+        const qty = integer(entry.spends?.[option.id]);
+        if ((option.once || option.onceGroup) && qty > 1) throw new Error(`${option.label} can only be applied once.`);
+        if (spendOptionDisabled(next, option) && qty > 0) throw new Error(`${option.label} was already used on this project.`);
+      }
       entry.level = expectedLevel;
       entry.attemptedLevel = undefined;
       next.schematic.entries.push(entry);
       if (["approved", "building"].includes(next.status)) next.status = "building";
-      addLog(next, "schematic", `Level ${expectedLevel} Schematic completed.`, userId);
+      addLog(next, "schematic", `Level ${expectedLevel} Schematic completed from the recorded roll.`, userId);
     } else {
-      if (integer(entry.attemptedLevel, expectedLevel) !== expectedLevel) throw new Error("Invalid Schematic attempt level.");
       entry.level = 0;
       entry.attemptedLevel = expectedLevel;
       next.schematic.entries.push(entry);
       addLog(next, "schematic-failed", `Level ${expectedLevel} Schematic attempt failed.`, userId);
     }
+    next.schematic.pending = null;
   }
 
   // The only player-controlled workflow transition is requesting final craft.
@@ -1020,7 +1143,7 @@ async function handleGMRequest(payload) {
       const actor = game.actors.get(stored?.actorId);
       if (!journal || !stored || !incoming || !user || !actor) throw new Error("Project update target no longer exists.");
       if (incoming.actorId !== stored.actorId || incoming.id !== stored.id) throw new Error("Project identity mismatch.");
-      if (!user.isGM && !actor.testUserPermission(user, ownerLevel())) throw new Error("You do not own the inventor Character.");
+      if (!canUseInventorActor(actor, user)) throw new Error("You cannot use the inventor Actor.");
       const authoritative = user.isGM ? incoming : mergePlayerProjectUpdate(stored, incoming, user.id);
       await journal.setFlag(FLAG_SCOPE, "project", authoritative);
       if (payload.updatePage !== false) await ensureJournalPage(journal, authoritative);
@@ -1032,7 +1155,7 @@ async function handleGMRequest(payload) {
       const user = game.users.get(payload.userId);
       const actor = game.actors.get(project?.actorId);
       if (!journal || !project || !user || !actor) throw new Error("Crafting project no longer exists.");
-      if (!user.isGM && !actor.testUserPermission(user, ownerLevel())) throw new Error("You do not own the inventor Character.");
+      if (!canUseInventorActor(actor, user)) throw new Error("You cannot use the inventor Actor.");
       project.rolls ??= [];
       const entry = deepClone(payload.roll);
       const chatMessage = entry?.chatMessageId ? game.messages?.get(entry.chatMessageId) : null;
@@ -1048,10 +1171,42 @@ async function handleGMRequest(payload) {
       project.rolls.unshift(entry);
       project.rolls = project.rolls.slice(0, 50);
       addLog(project, "roll", `${entry.label || entry.skill || "Project check"} rolled at ${difficultyLabel(entry.difficulty ?? 0)}${entry.summary ? ` · ${entry.summary}` : ""}.`, payload.userId);
+      let schematicResolution = null;
+      if (entry.kind === "schematic") {
+        schematicResolution = registerSchematicRollOnProject(project, chatMessage, entry, payload.userId);
+      }
       await journal.setFlag(FLAG_SCOPE, "project", project);
       await ensureJournalPage(journal, project);
-      response.result = {journalId: journal.id, rollId: entry.id};
+      response.result = {journalId: journal.id, rollId: entry.id, schematicResolution};
       response.ok = true;
+    } else if (payload.action === "addGatheredComponents") {
+      const user = game.users.get(payload.userId);
+      const actor = game.actors.get(payload.actorId);
+      const chatMessage = game.messages?.get(payload.chatMessageId);
+      if (!user || !actor || !chatMessage) throw new Error("Gathering result no longer exists.");
+      if (!canUseInventorActor(actor, user)) throw new Error("You cannot gather components with that Actor.");
+      const chatUserId = chatMessage?.user?.id ?? chatMessage?.user ?? chatMessage?.author?.id;
+      if (String(chatUserId) !== String(payload.userId)) throw new Error("Gathering entries must reference your own roll.");
+      const meta = chatMessage.getFlag?.(FLAG_SCOPE, "gatheringRoll") ?? {};
+      if (String(meta.actorId ?? "") !== String(actor.id)) throw new Error("Gathering Actor mismatch.");
+      const tier = [3,5,7].includes(integer(meta.tier)) ? integer(meta.tier) : 3;
+      const roll = primaryMessageRoll(chatMessage);
+      if (!roll) throw new Error("Gathering chat message has no Genesys roll.");
+      const net = netNarrativeResult(genesysRollSymbols(roll));
+      const value = Math.max(0, net.success * gatheringYieldPerSuccess(tier));
+      if (value <= 0) {
+        response.result = {actorId: actor.id, value: 0, successes: net.success};
+        response.ok = true;
+      } else {
+        const domain = GATHERING_DOMAINS[meta.domainId] ?? GATHERING_DOMAINS.smithing;
+        await addStockpileEntryAsGM(actor, {
+          domainId: meta.domainId, componentType: domain.componentType, tier, value, skillName: meta.skillName,
+          difficulty: meta.difficulty, successes: net.success, chatMessageId: chatMessage.id, chatMessageUuid: chatMessage.uuid,
+          userId: payload.userId, at: Number(chatMessage.timestamp) || Date.now()
+        });
+        response.result = {actorId: actor.id, value, successes: net.success, tier};
+        response.ok = true;
+      }
     } else {
       throw new Error(`Unknown request: ${payload.action}`);
     }
@@ -1225,10 +1380,94 @@ function netNarrativeResult(symbols, automatic = {}) {
   };
 }
 
+function primaryMessageRoll(message) {
+  return message?.rolls?.[0] ?? message?.roll ?? null;
+}
+
+function schematicRollResolution(project, message, {skill = "", difficulty = 0, label = "", userId = null} = {}) {
+  const roll = primaryMessageRoll(message);
+  if (!roll) throw new Error("The Schematic chat message does not contain a roll.");
+  const nextLevel = schematicEffects(project).level + 1;
+  if (nextLevel > 4) throw new Error("This project already has a Level 4 Schematic.");
+  const result = netNarrativeResult(genesysRollSymbols(roll));
+  const success = result.success > 0;
+  const pending = {
+    id: randomId(),
+    level: nextLevel,
+    success,
+    at: Number(message?.timestamp) || Date.now(),
+    userId,
+    skill,
+    difficulty,
+    label,
+    chatMessageId: message?.id ?? null,
+    chatMessageUuid: message?.uuid ?? null,
+    result: {
+      success: result.success,
+      failure: result.failure,
+      advantage: result.advantage,
+      triumph: result.triumph,
+      threat: result.threat,
+      despair: result.despair
+    }
+  };
+  const hasSpendable = pending.result.advantage > 0 || pending.result.triumph > 0 || pending.result.threat > 0 || pending.result.despair > 0;
+  return {pending, hasSpendable};
+}
+
+function applyResolvedSchematicRoll(project, pending, spends = {}) {
+  project.schematic ??= {entries: []};
+  project.schematic.entries ??= [];
+  const entry = {
+    id: randomId(),
+    level: pending.success ? pending.level : 0,
+    attemptedLevel: pending.success ? undefined : pending.level,
+    success: Boolean(pending.success),
+    at: Number(pending.at) || Date.now(),
+    userId: pending.userId ?? game.user?.id ?? null,
+    chatMessageId: pending.chatMessageId ?? null,
+    chatMessageUuid: pending.chatMessageUuid ?? null,
+    result: deepClone(pending.result ?? {}),
+    spends: pending.success ? deepClone(spends ?? {}) : deepClone(spends ?? {})
+  };
+  project.schematic.entries.push(entry);
+  project.schematic.pending = null;
+  if (entry.success) {
+    if (["approved", "building"].includes(project.status)) project.status = "building";
+    addLog(project, "schematic", `Level ${pending.level} Schematic completed from the recorded roll.`, pending.userId);
+  } else {
+    addLog(project, "schematic-failed", `Level ${pending.level} Schematic attempt failed.`, pending.userId);
+  }
+  return entry;
+}
+
+function registerSchematicRollOnProject(project, message, entry, userId) {
+  project.schematic ??= {entries: []};
+  if (project.schematic.pending) throw new Error("Resolve the previous Schematic roll before rolling again.");
+  const {pending, hasSpendable} = schematicRollResolution(project, message, {
+    skill: entry.skill,
+    difficulty: entry.difficulty,
+    label: entry.label,
+    userId
+  });
+  if (hasSpendable) {
+    project.schematic.pending = pending;
+    addLog(project, "schematic-pending", `Schematic Level ${pending.level} roll recorded; spend Advantage/Threat/Triumph/Despair to resolve it.`, userId);
+    return {pending: true, level: pending.level, success: pending.success, result: pending.result};
+  }
+  const resolved = applyResolvedSchematicRoll(project, pending, {});
+  return {pending: false, level: pending.level, success: resolved.success, result: pending.result};
+}
+
 async function narrativeSymbolHTML(code) {
-  if (!code) return "";
-  try { return await TextEditor.enrichHTML(`@symbol[${code}]`, {async: true}); }
-  catch (_) { return esc(code); }
+  const cleaned = String(code ?? "").replace(/\s+/g, "");
+  if (!cleaned) return "";
+  try {
+    const enriched = await TextEditor.enrichHTML(`@symbol[${cleaned}]`, {async: true});
+    return String(enriched ?? "").includes("@symbol[") ? esc(cleaned) : enriched;
+  } catch (_) {
+    return esc(cleaned);
+  }
 }
 
 async function genesysChatCardHTML({actor, skillName, label, difficulty, roll, automatic = {}, contextHTML = ""}) {
@@ -1242,8 +1481,9 @@ async function genesysChatCardHTML({actor, skillName, label, difficulty, roll, a
   const resultSymbols = visibleCodes ? await narrativeSymbolHTML(visibleCodes) : `<span class="ginv-chat-none">No uncanceled results</span>`;
   const dieFaces = [];
   for (const die of symbols.dice) {
-    const face = await narrativeSymbolHTML(die.face || "-");
-    dieFaces.push(`<span class="ginv-chat-die die-${esc(die.denomination)}">${face || "·"}</span>`);
+    const rawFace = String(die.face ?? "").trim();
+    const face = rawFace ? await narrativeSymbolHTML(rawFace) : "";
+    dieFaces.push(`<span class="ginv-chat-die die-${esc(die.denomination)} ${rawFace ? "" : "blank"}">${face || "&nbsp;"}</span>`);
   }
   const rows = [];
   if (net.success) rows.push(`<div><span>${await narrativeSymbolHTML("s")}</span><strong>Successes</strong><b>${net.success}</b></div>`);
@@ -1278,22 +1518,25 @@ async function executeGenesysProjectRoll({journal, actor, skillName, difficulty,
     id: randomId(), at: Number(message?.timestamp) || Date.now(), skill: skillName, difficulty, kind, label,
     chatMessageId: message?.id ?? null, chatMessageUuid: message?.uuid ?? null, summary: chatMessageSummary(message)
   };
+  let schematicResolution = null;
   if (game.user.isGM) {
     const project = projectFromJournal(journal);
     project.rolls ??= [];
     project.rolls.unshift({...entry, userId: game.user.id});
     project.rolls = project.rolls.slice(0, 50);
     addLog(project, "roll", `${label} rolled at ${difficultyLabel(difficulty)}.`, game.user.id);
+    if (kind === "schematic") schematicResolution = registerSchematicRollOnProject(project, message, entry, game.user.id);
     await saveProject(journal, project);
   } else {
-    await requestGM("appendRollLog", {journalId: journal.id, roll: entry});
+    const response = await requestGM("appendRollLog", {journalId: journal.id, roll: entry});
+    schematicResolution = response?.schematicResolution ?? null;
   }
-  return {roll, message, result: netNarrativeResult(genesysRollSymbols(roll), automatic)};
+  return {roll, message, result: netNarrativeResult(genesysRollSymbols(roll), automatic), schematicResolution};
 }
 
 async function openProjectRollPrompt(journal, project, {kind = "crafting", skillName = null, difficulty = null, label = null} = {}) {
   const actor = game.actors.get(project?.actorId);
-  if (!actor || !isOwnerCharacter(actor)) throw new Error("You must own the inventor Character to roll this check.");
+  if (!actor || !canUseInventorActor(actor)) throw new Error("You cannot use the inventor Actor to roll this check.");
 
   const isSchematic = kind === "schematic";
   const resolvedSkillName = String(skillName ?? (isSchematic ? projectSchematicSkill(project, actor) : project?.approval?.rules?.craftingSkill ?? "")).trim();
@@ -1347,7 +1590,16 @@ async function openProjectRollPrompt(journal, project, {kind = "crafting", skill
       const button = prompt.querySelector("[data-roll-confirm]");
       if (button) button.disabled = true;
       try {
-        await executeGenesysProjectRoll({journal, actor, skillName: resolvedSkillName, difficulty: resolvedDifficulty, kind, label: resolvedLabel, pool, prompt, automatic: isSchematic ? {} : {success: schematicEffects(project).autoSuccess, advantage: schematicEffects(project).autoAdvantage, threat: schematicEffects(project).autoThreat}});
+        const outcome = await executeGenesysProjectRoll({journal, actor, skillName: resolvedSkillName, difficulty: resolvedDifficulty, kind, label: resolvedLabel, pool, prompt, automatic: isSchematic ? {} : {success: schematicEffects(project).autoSuccess, advantage: schematicEffects(project).autoAdvantage, threat: schematicEffects(project).autoThreat}});
+        if (isSchematic && outcome?.schematicResolution) {
+          if (outcome.schematicResolution.pending) {
+            ui.notifications.info(`Schematic Level ${outcome.schematicResolution.level} roll recorded. Resolve the remaining symbols in the project to finish the schematic.`);
+          } else if (outcome.schematicResolution.success) {
+            ui.notifications.info(`Schematic Level ${outcome.schematicResolution.level} completed automatically.`);
+          } else {
+            ui.notifications.warn(`Schematic Level ${outcome.schematicResolution.level} attempt failed and was recorded.`);
+          }
+        }
       } catch (error) {
         console.error("Genesys Inventions | Roll failed", error);
         ui.notifications.error(`Could not roll ${resolvedSkillName}: ${error.message}`);
@@ -1370,7 +1622,8 @@ async function rollProjectSkill(journal, project) {
 
 async function rollProjectSchematic(journal, project) {
   const actor = game.actors.get(project?.actorId);
-  if (!actor) throw new Error("Inventor Character no longer exists.");
+  if (!actor) throw new Error("Inventor Actor no longer exists.");
+  if (project?.schematic?.pending) throw new Error("Resolve the previous Schematic roll before rolling another one.");
   const nextLevel = schematicEffects(project).level + 1;
   const level = SCHEMATIC_LEVELS[nextLevel];
   if (!level) throw new Error("This project already has a Level 4 Schematic.");
@@ -1440,26 +1693,59 @@ function rulesReferenceHTML() {
     <section class="ginv-panel"><h2>Crafting Workflow</h2><p><strong>1. Define the invention.</strong> Player and GM agree on the final profile, rarity, component cost, skill, base difficulty, and time.</p><p><strong>2. Optional schematic.</strong> A schematic applies to one specific invention.</p><table class="ginv-table"><thead><tr><th>Level</th><th>Design Check</th><th>Time</th><th>Crafting Difficulty</th></tr></thead><tbody><tr><td>1</td><td>Average</td><td>6 h</td><td>-1</td></tr><tr><td>2</td><td>Hard</td><td>6 h</td><td>-2</td></tr><tr><td>3</td><td>Daunting</td><td>8 h</td><td>-3</td></tr><tr><td>4</td><td>Formidable</td><td>12 h</td><td>-4</td></tr></tbody></table><p><strong>3. Gather components.</strong> Component pools use the world's currency unit: <strong>${currency}</strong>.</p><p><strong>4. Final crafting check.</strong> Roll the GM-approved skill after schematic reductions and automatic results.</p></section>
     <section class="ginv-panel"><h2>Component Tiers</h2><p><strong>Tier 3:</strong> ordinary components associated with rarity 0–3. <strong>Tier 5:</strong> rarer or specialist components associated with rarity 4–5. <strong>Tier 7:</strong> restricted or very rare components associated with rarity 6+.</p><table class="ginv-table"><thead><tr><th>Item Rarity</th><th>Tier 3</th><th>Tier 5</th><th>Tier 7</th></tr></thead><tbody>${rarityRows}</tbody></table><p class="ginv-help">The supplement suggests about 1 Encumbrance per 500 ${currency} of carried components.</p></section>
     <section class="ginv-panel"><h2>Recovering Components from Items</h2><p>Declare the Tier you are trying to recover, then make a Mechanics check. Deconstruction takes hours equal to the item's rarity.</p><p>Each net Success recovers value equal to <strong>25%</strong> of item cost for Tier 3, <strong>15%</strong> for Tier 5, or <strong>5%</strong> for Tier 7, up to the component cap for that Tier.</p><p>Advantage can open spending on another Tier or reduce time by 30 minutes; Threat can increase time by 30 minutes.</p></section>
-    <section class="ginv-panel"><h2>Gathering Materials in Play</h2><div class="ginv-callout"><strong>Workshop guidance.</strong> Wonderous Inventions defines tiers and deconstruction, but not a universal field-harvesting formula. A gathering check therefore establishes the narrative result; the GM assigns a sensible Tier and value in ${currency}.</div><p>Use the separate <strong>Gather Components</strong> screen to choose the kind of material, its associated skill, the difficulty, and roll directly from the selected Character.</p></section>
+    <section class="ginv-panel"><h2>Gathering Materials in Play</h2><div class="ginv-callout"><strong>Workshop guidance.</strong> Wonderous Inventions defines component tiers and deconstruction, but not a universal field-harvesting formula. The module therefore uses an explicit default yield so the result can be recorded automatically.</div><table class="ginv-table"><thead><tr><th>Target Tier</th><th>Recommended Difficulty</th><th>Value per net Success</th></tr></thead><tbody><tr><td>Tier 3</td><td>Average</td><td>${currencyAmount(gatheringYieldPerSuccess(3))}</td></tr><tr><td>Tier 5</td><td>Hard</td><td>${currencyAmount(gatheringYieldPerSuccess(5))}</td></tr><tr><td>Tier 7</td><td>Daunting</td><td>${currencyAmount(gatheringYieldPerSuccess(7))}</td></tr></tbody></table><p>The values deliberately echo the supplement's 25% / 15% / 5% deconstruction rates: each net Success is treated as one notional 1,000-${currency} resource opportunity. This is a campaign-facing convenience rule, not RAW.</p><p><strong>Advantage / Threat / Triumph / Despair do not change the value automatically.</strong> Use them for richer or poorer material quality, reduced gathering time, hazards, unwanted attention, special components, or other narrative effects.</p><p>Successful rolls are stored in the selected Actor's <strong>Component Stockpile</strong> with the material family, Tier, value, Skill, and originating chat roll.</p></section>
     <section class="ginv-panel"><h2>Existing Base Objects</h2><div class="ginv-callout"><strong>Workshop guidance.</strong> If a character supplies an existing base object, the module can credit its recoverable Tier 3 / 5 / 7 component value against the new project. For an Inventory object, the exact Item is consumed when the invention is completed. For a library reference, the GM should verify that an equivalent object is actually available.</div><p>This uses the supplement's deconstruction component caps as the value ceiling rather than granting the object's full retail price as components.</p></section>
     <section class="ginv-panel"><h2>Vehicle Inventions</h2><p>Vehicle projects use the Expanded Player's Guide vehicle-profile guidelines: function, silhouette, control skill, maximum speed, handling, defense, armor, Hull Trauma, System Strain, capacity, crew, and consumables. The profile remains GM-approved because these are construction guidelines rather than a universal crafting formula.</p><p class="ginv-help">The finished project creates a Vehicle Actor and stores the complete approved profile in the module flags, while mapping fields into the active Genesys vehicle schema where available.</p></section>
     <section class="ginv-panel"><h2>Нуваротехніка · Enkor</h2><p>When a Nuvarotech / Нуваротехніка skill exists in the active world or selected Character, inventions can be marked as <strong>Nuvarotech</strong>. This is a setting discipline, not a new Wonderous Inventions Tier: the same schematic and component framework still applies unless the GM adds Enkor-specific requirements.</p></section>
   </div>`;
 }
 
-async function openGatheringRollPrompt(actor, {domainId, skillName, difficulty, tier}) {
-  if (!isOwnerCharacter(actor)) throw new Error("You must own the Character making the gathering check.");
+async function openGatheringRollPrompt(actor, {domainId, skillName, difficulty, tier, onRecorded = null}) {
+  if (!canUseInventorActor(actor)) throw new Error("You cannot use that Actor for the gathering check.");
   const domain = GATHERING_DOMAINS[domainId]; if (!domain) throw new Error("Unknown gathering domain.");
+  const normalizedTier = [3,5,7].includes(integer(tier)) ? integer(tier) : 3;
+  const normalizedDifficulty = Math.max(0, integer(difficulty, recommendedGatheringDifficulty(normalizedTier)));
   const skill = await resolveProjectSkill(actor, skillName);
-  const pool = {ability:skill.ability, proficiency:skill.proficiency, boost:0, difficulty:Math.max(0,integer(difficulty,2)), challenge:0, setback:0};
+  const pool = {ability:skill.ability, proficiency:skill.proficiency, boost:0, difficulty:normalizedDifficulty, challenge:0, setback:0};
   document.querySelectorAll("[data-ginv-roll-prompt]").forEach(node=>node.remove());
   const prompt=document.createElement("div"); prompt.className="ginv-roll-prompt-overlay"; prompt.dataset.ginvRollPrompt="true";
   const diceDefs=[["ability","Ability","green"],["proficiency","Proficiency","yellow"],["boost","Boost","blue"],["difficulty","Difficulty","purple"],["challenge","Challenge","red"],["setback","Setback","black"]];
-  prompt.innerHTML=`<div class="ginv-shell ginv-roll-prompt" data-theme="${esc(storedTheme())}" style="--ginv-text-adjust:${storedTextSize()}px"><div class="ginv-roll-prompt-head"><div><h2>Збір компонентів · ${esc(domain.label)}</h2><div class="ginv-sub">${esc(actor.name)} · ${esc(skillName)} · ${esc(difficultyLabel(difficulty))} · Tier ${tier}</div></div><button type="button" class="ginv-btn" data-roll-close>Close</button></div><div class="ginv-callout"><strong>${esc(domain.componentType)}</strong><br>Підходять для: ${esc(domain.uses)}</div><div class="ginv-dice-grid">${diceDefs.map(([key,name,tone])=>`<div class="ginv-die-counter ${tone}"><strong>${name}</strong><div class="ginv-die-stepper"><button type="button" data-die-dec="${key}">−</button><span data-die-value="${key}">${pool[key]}</span><button type="button" data-die-inc="${key}">+</button></div></div>`).join("")}</div><div class="ginv-roll-formula" data-roll-formula>${esc(genesysRollFormula(pool))}</div><div class="ginv-row ginv-roll-actions"><button type="button" class="ginv-btn primary" data-roll-confirm>🎲 Roll ${esc(skillName)}</button><span class="ginv-sub">GM assigns the final ${esc(worldCurrencyLabel())} value of the gathered material.</span></div></div>`;
+  const perSuccess = gatheringYieldPerSuccess(normalizedTier);
+  prompt.innerHTML=`<div class="ginv-shell ginv-roll-prompt" data-theme="${esc(storedTheme())}" style="--ginv-text-adjust:${storedTextSize()}px"><div class="ginv-roll-prompt-head"><div><h2>Збір компонентів · ${esc(domain.label)}</h2><div class="ginv-sub">${esc(actor.name)} · ${esc(skillName)} · ${esc(difficultyLabel(normalizedDifficulty))} · Tier ${normalizedTier}</div></div><button type="button" class="ginv-btn" data-roll-close>Close</button></div><div class="ginv-callout"><strong>${esc(domain.componentType)}</strong><br>Підходять для: ${esc(domain.uses)}<br><span class="ginv-help">Workshop yield: кожен net Success = ${currencyAmount(perSuccess)} компонентів Tier ${normalizedTier}. Advantage/Threat/Triumph/Despair лишаються для сюжетних наслідків і якості знахідки.</span></div><div class="ginv-dice-grid">${diceDefs.map(([key,name,tone])=>`<div class="ginv-die-counter ${tone}"><strong>${name}</strong><div class="ginv-die-stepper"><button type="button" data-die-dec="${key}">−</button><span data-die-value="${key}">${pool[key]}</span><button type="button" data-die-inc="${key}">+</button></div></div>`).join("")}</div><div class="ginv-roll-formula" data-roll-formula>${esc(genesysRollFormula(pool))}</div><div class="ginv-row ginv-roll-actions"><button type="button" class="ginv-btn primary" data-roll-confirm>🎲 Roll ${esc(skillName)}</button><span class="ginv-sub">Successful yield is registered automatically in this Actor's Component Stockpile.</span></div></div>`;
   document.body.appendChild(prompt);
   const refresh=()=>{for(const key of Object.keys(pool)){const n=prompt.querySelector(`[data-die-value="${key}"]`);if(n)n.textContent=String(pool[key]);}const f=prompt.querySelector("[data-roll-formula]");if(f)f.textContent=genesysRollFormula(pool);};
   prompt.querySelector("[data-roll-close]")?.addEventListener("click",()=>closeRollPrompt(prompt));
-  prompt.addEventListener("click",async event=>{const dec=event.target?.closest?.("[data-die-dec]");const inc=event.target?.closest?.("[data-die-inc]");if(dec){const k=dec.dataset.dieDec;pool[k]=Math.max(0,integer(pool[k])-1);refresh();return;}if(inc){const k=inc.dataset.dieInc;pool[k]=Math.min(12,integer(pool[k])+1);refresh();return;}if(!event.target?.closest?.("[data-roll-confirm]"))return;const button=prompt.querySelector("[data-roll-confirm]");if(button)button.disabled=true;try{const formula=genesysRollFormula(pool);const roll=await(new Roll(formula)).evaluate();const contextHTML=`<div class="ginv-chat-material"><strong>${esc(domain.componentType)}</strong> · Tier ${integer(tier,3)}<br><span>Підходять для: ${esc(domain.uses)}</span><br><span>Вартість у ${esc(worldCurrencyLabel())} визначає GM.</span></div>`;const content=await genesysChatCardHTML({actor,skillName,label:`Збір компонентів · ${domain.label}`,difficulty,roll,contextHTML});await ChatMessage.create({user:game.user.id,speaker:ChatMessage.getSpeaker({actor}),content,style:CONST.CHAT_MESSAGE_STYLES?.OTHER??0,rolls:[roll],sound:CONFIG.sounds?.dice,flags:{[FLAG_SCOPE]:{gatheringRoll:{domainId,tier,skillName,difficulty,formula}}}});closeRollPrompt(prompt);}catch(error){console.error("Genesys Inventions | Gathering roll failed",error);ui.notifications.error(`Could not roll ${skillName}: ${error.message}`);if(button)button.disabled=false;}});
+  prompt.addEventListener("click",async event=>{
+    const dec=event.target?.closest?.("[data-die-dec]"); const inc=event.target?.closest?.("[data-die-inc]");
+    if(dec){const k=dec.dataset.dieDec;pool[k]=Math.max(0,integer(pool[k])-1);refresh();return;}
+    if(inc){const k=inc.dataset.dieInc;pool[k]=Math.min(12,integer(pool[k])+1);refresh();return;}
+    if(!event.target?.closest?.("[data-roll-confirm]"))return;
+    const button=prompt.querySelector("[data-roll-confirm]"); if(button)button.disabled=true;
+    try{
+      const formula=genesysRollFormula(pool);
+      const roll=await(new Roll(formula)).evaluate();
+      const net=netNarrativeResult(genesysRollSymbols(roll));
+      const gatheredValue=Math.max(0, net.success * perSuccess);
+      const resultLine = gatheredValue > 0
+        ? `<strong>Здобуто:</strong> ${currencyAmount(gatheredValue)} · Tier ${normalizedTier} (${net.success} net Success × ${currencyAmount(perSuccess)})`
+        : `<strong>Здобуто:</strong> 0 ${esc(worldCurrencyLabel())} · успішної знахідки немає.`;
+      const contextHTML=`<div class="ginv-chat-material"><strong>${esc(domain.componentType)}</strong> · Tier ${normalizedTier}<br><span>Підходять для: ${esc(domain.uses)}</span><br><span>${resultLine}</span></div>`;
+      const content=await genesysChatCardHTML({actor,skillName,label:`Збір компонентів · ${domain.label}`,difficulty:normalizedDifficulty,roll,contextHTML});
+      const message=await ChatMessage.create({user:game.user.id,speaker:ChatMessage.getSpeaker({actor}),content,style:CONST.CHAT_MESSAGE_STYLES?.OTHER??0,rolls:[roll],sound:CONFIG.sounds?.dice,flags:{[FLAG_SCOPE]:{gatheringRoll:{actorId:actor.id,domainId,tier:normalizedTier,skillName,difficulty:normalizedDifficulty,formula}}}});
+      if (gatheredValue > 0) {
+        if (game.user.isGM) {
+          await addStockpileEntryAsGM(actor,{domainId,componentType:domain.componentType,tier:normalizedTier,value:gatheredValue,skillName,difficulty:normalizedDifficulty,successes:net.success,chatMessageId:message.id,chatMessageUuid:message.uuid,userId:game.user.id,at:Number(message.timestamp)||Date.now()});
+        } else {
+          await requestGM("addGatheredComponents", {actorId: actor.id, chatMessageId: message.id});
+        }
+        ui.notifications.info(`${currencyAmount(gatheredValue)} of Tier ${normalizedTier} ${domain.componentType} added to ${actor.name}'s Component Stockpile.`);
+      } else {
+        ui.notifications.warn("No component value was gathered from this check.");
+      }
+      closeRollPrompt(prompt);
+      try { onRecorded?.(); } catch (_) {}
+    }catch(error){console.error("Genesys Inventions | Gathering roll failed",error);ui.notifications.error(`Could not roll ${skillName}: ${error.message}`);if(button)button.disabled=false;}
+  });
 }
 
 function shellHeader(title, subtitle, state) {
@@ -1792,8 +2078,8 @@ function applyQualityFilter(overlay, state) {
 }
 
 async function openNewInvention(actor, parentState, goHome) {
-  if (!isOwnerCharacter(actor)) {
-    ui.notifications.warn("You must have OWNER permission for the inventor Character to create an invention.");
+  if (!canUseInventorActor(actor)) {
+    ui.notifications.warn("You cannot use that Actor to create an invention.");
     goHome?.();
     return;
   }
@@ -2105,17 +2391,20 @@ function spendOptionDisabled(project, option) {
 async function openSchematicRecorder(journal, parentState, returnToProject) {
   const project = projectFromJournal(journal);
   if (!project?.approval || !["approved", "building"].includes(project.status)) return;
-  const currentLevel = schematicEffects(project).level;
-  const nextLevel = Math.min(4, currentLevel + 1);
-  if (currentLevel >= 4) { ui.notifications.info("This project already has a Level 4 Schematic."); return; }
+  const pending = deepClone(project.schematic?.pending ?? null);
+  if (!pending) {
+    ui.notifications.info("Roll the next Schematic check first. Its actual chat result will appear here for spending.");
+    return;
+  }
+  const nextLevel = integer(pending.level);
   const state = {
     theme: parentState.theme,
     textSize: parentState.textSize,
-    success: true,
-    advantage: 0,
-    triumph: 0,
-    threat: 0,
-    despair: 0,
+    success: Boolean(pending.success),
+    advantage: Math.max(0, integer(pending.result?.advantage)),
+    triumph: Math.max(0, integer(pending.result?.triumph)),
+    threat: Math.max(0, integer(pending.result?.threat)),
+    despair: Math.max(0, integer(pending.result?.despair)),
     spends: {},
     message: ""
   };
@@ -2156,30 +2445,19 @@ async function openSchematicRecorder(journal, parentState, returnToProject) {
     const pos = spendBudget(state, "positive");
     const neg = spendBudget(state, "negative");
     overlay.innerHTML = `<div class="ginv-shell" data-theme="${state.theme}" style="--ginv-text-adjust:${state.textSize}px">
-      ${shellHeader(`Schematic Level ${nextLevel}`, `${project.concept.name} · ${difficultyLabel(SCHEMATIC_LEVELS[nextLevel].difficulty)} Knowledge check · ${SCHEMATIC_LEVELS[nextLevel].hours} hours`, state)}
+      ${shellHeader(`Resolve Schematic Level ${nextLevel}`, `${project.concept.name} · ${esc(pending.skill || projectSchematicSkill(project, game.actors.get(project.actorId)))} · ${difficultyLabel(pending.difficulty ?? SCHEMATIC_LEVELS[nextLevel]?.difficulty ?? 0)}`, state)}
       <main class="ginv-main">
-        <div class="ginv-panel"><h2>Record Check Result</h2><div class="ginv-grid4">
-          <div class="ginv-field"><label>Check</label><select data-check-success><option value="yes" ${state.success ? "selected" : ""}>Succeeded</option><option value="no" ${!state.success ? "selected" : ""}>Failed</option></select></div>
-          <div class="ginv-field"><label>Uncanceled Advantage</label><input type="number" min="0" data-result-adv value="${state.advantage}"></div>
-          <div class="ginv-field"><label>Triumph</label><input type="number" min="0" data-result-tri value="${state.triumph}"></div>
-          <div class="ginv-field"><label>Uncanceled Threat</label><input type="number" min="0" data-result-threat value="${state.threat}"></div>
-          <div class="ginv-field"><label>Despair</label><input type="number" min="0" data-result-despair value="${state.despair}"></div>
-        </div>${!state.success ? `<div class="ginv-callout ginv-warn">Failed design attempts are logged, but v0.1 does not apply persistent schematic benefits from a failed check because the supplement only defines a new schematic level on success.</div>` : ""}</div>
+        <div class="ginv-panel"><h2>Recorded Roll</h2><div class="ginv-callout ${state.success ? "ginv-good" : "ginv-warn"}"><strong>${state.success ? `Succeeded with ${pending.result?.success ?? 0} net Success` : "Failed"}</strong><br>Advantage ${state.advantage} · Triumph ${state.triumph} · Threat ${state.threat} · Despair ${state.despair}<br><span class="ginv-help">This result is locked to the actual Genesys chat roll and cannot be edited here.</span></div>${!state.success ? `<p class="ginv-help">The failed attempt will be recorded, but it does not create a new Schematic level.</p>` : ""}</div>
         ${state.success ? `<div class="ginv-grid" style="margin-top:14px">
           <div class="ginv-panel"><h2>Positive Spending</h2><div class="ginv-budget" data-positive-budget>Available: ${state.advantage} Advantage, ${state.triumph} Triumph · Spent: ${pos.advantage} Advantage, ${pos.triumph} Triumph</div>${spendRows(POSITIVE_SPENDS)}</div>
           <div class="ginv-panel"><h2>Negative Spending</h2><div class="ginv-budget" data-negative-budget>Available: ${state.threat} Threat, ${state.despair} Despair · Spent: ${neg.threat} Threat, ${neg.despair} Despair</div>${spendRows(NEGATIVE_SPENDS)}</div>
         </div>` : ""}
         ${state.message ? `<div class="ginv-callout ginv-bad">${esc(state.message)}</div>` : ""}
       </main>
-      <footer class="ginv-foot"><button class="ginv-btn" data-back>Cancel</button><div class="ginv-spacer"></div><button class="ginv-btn primary" data-save>Record Result</button></footer>
+      <footer class="ginv-foot"><button class="ginv-btn" data-back>Cancel</button><div class="ginv-spacer"></div><button class="ginv-btn primary" data-save>${state.success ? "Resolve & Record Schematic" : "Record Failed Attempt"}</button></footer>
     </div>`;
     bindShellControls(overlay, state, render, close);
     overlay.querySelector("[data-back]")?.addEventListener("click", back);
-    bindField(overlay, "[data-check-success]", v => { state.success = v === "yes"; render({preserveUI: true}); }, "change");
-    bindField(overlay, "[data-result-adv]", v => { state.advantage = Math.max(0, integer(v)); syncBudgetUI(); });
-    bindField(overlay, "[data-result-tri]", v => { state.triumph = Math.max(0, integer(v)); syncBudgetUI(); });
-    bindField(overlay, "[data-result-threat]", v => { state.threat = Math.max(0, integer(v)); syncBudgetUI(); });
-    bindField(overlay, "[data-result-despair]", v => { state.despair = Math.max(0, integer(v)); syncBudgetUI(); });
     overlay.querySelectorAll("[data-spend]").forEach(input => input.addEventListener("input", () => {
       state.spends[input.dataset.spend] = Math.max(0, integer(input.value));
       syncBudgetUI();
@@ -2190,11 +2468,8 @@ async function openSchematicRecorder(journal, parentState, returnToProject) {
       if (state.success) {
         const p = spendBudget(state, "positive");
         const n = spendBudget(state, "negative");
-        if (state.advantage > 0 && state.threat > 0) {
-          state.message = "Record uncanceled results: Advantage and Threat cannot both remain after cancellation."; render({preserveUI: true}); return;
-        }
         if (p.advantage > state.advantage || p.triumph > state.triumph || n.threat > state.threat || n.despair > state.despair) {
-          state.message = "Selected spending exceeds the recorded symbols."; render({preserveUI: true}); return;
+          state.message = "Selected spending exceeds the symbols on the recorded roll."; render({preserveUI: true}); return;
         }
         for (const option of [...POSITIVE_SPENDS, ...NEGATIVE_SPENDS]) {
           const qty = integer(state.spends[option.id]);
@@ -2208,25 +2483,30 @@ async function openSchematicRecorder(journal, parentState, returnToProject) {
         const upGroup = integer(state.spends.hardPointUpA) + integer(state.spends.hardPointUpT);
         const downGroup = integer(state.spends.hardPointDownT) + integer(state.spends.hardPointDownD);
         if (upGroup > 1 || downGroup > 1) {
-          state.message = "The +1 Hard Point and -1 Hard Point schematic results can each only be applied once, regardless of which symbol pays for them."; render({preserveUI: true}); return;
+          state.message = "The +1 Hard Point and -1 Hard Point results can each only be applied once."; render({preserveUI: true}); return;
         }
       }
+
       const fresh = projectFromJournal(journal);
-      fresh.schematic ??= {entries: []};
-      if (state.success) {
-        fresh.schematic.entries.push({
-          id: randomId(), level: nextLevel, success: true, at: Date.now(), userId: game.user.id,
-          result: {advantage: state.advantage, triumph: state.triumph, threat: state.threat, despair: state.despair},
-          spends: deepClone(state.spends)
-        });
-        fresh.status = "building";
-        addLog(fresh, "schematic", `Level ${nextLevel} Schematic completed.`, game.user.id);
+      const livePending = deepClone(fresh?.schematic?.pending ?? null);
+      if (!livePending || String(livePending.chatMessageId ?? "") !== String(pending.chatMessageId ?? "")) {
+        state.message = "This Schematic roll has already been resolved or was replaced."; render({preserveUI: true}); return;
+      }
+      if (game.user.isGM) {
+        applyResolvedSchematicRoll(fresh, livePending, state.success ? state.spends : {});
       } else {
         fresh.schematic.entries.push({
-          id: randomId(), level: 0, attemptedLevel: nextLevel, success: false, at: Date.now(), userId: game.user.id,
-          result: {advantage: state.advantage, triumph: state.triumph, threat: state.threat, despair: state.despair}, spends: {}
+          id: randomId(),
+          level: livePending.success ? livePending.level : 0,
+          attemptedLevel: livePending.success ? undefined : livePending.level,
+          success: Boolean(livePending.success),
+          at: livePending.at,
+          userId: game.user.id,
+          chatMessageId: livePending.chatMessageId,
+          chatMessageUuid: livePending.chatMessageUuid,
+          result: deepClone(livePending.result ?? {}),
+          spends: livePending.success ? deepClone(state.spends) : {}
         });
-        addLog(fresh, "schematic-failed", `Level ${nextLevel} Schematic attempt failed.`, game.user.id);
       }
       await saveProject(journal, fresh);
       back();
@@ -2358,8 +2638,10 @@ async function openProject(journal, parentState, returnToWorkshop) {
     if (!project) { close(); return; }
     const actor = game.actors.get(project.actorId);
     const fx = schematicEffects(project);
+    const pendingSchematic = project.schematic?.pending ?? null;
     const components = currentComponents(project);
     const acquired = project.components?.acquired ?? {tier3: 0, tier5: 0, tier7: 0};
+    const stockpileTotalsForActor = stockpileTotals(actorComponentStockpile(actor));
     const approved = project.approval?.item;
     const rules = project.approval?.rules;
     const canDevelop = ["approved", "building"].includes(project.status);
@@ -2381,8 +2663,8 @@ async function openProject(journal, parentState, returnToWorkshop) {
           <div class="ginv-panel"><h3>${approved ? "Approved Design" : "GM Approval"}</h3>${approved ? `<p><strong>${esc(approved.name)}</strong></p><p>${esc(itemStatSummary(approved))}</p><div class="ginv-chips"><span class="ginv-chip">${esc(rules.craftingSkill)}</span><span class="ginv-chip">${difficultyLabel(rules.craftingDifficulty)} → ${difficultyLabel(currentCraftingDifficulty(project))}</span><span class="ginv-chip">${money(currentCraftingHours(project))} h</span><span class="ginv-chip">${currencyAmount(rules.totalCost)} components</span></div>${rules.notes ? `<p class="ginv-help">${esc(rules.notes)}</p>` : ""}` : `<p class="ginv-help">This project is waiting for GM review. The GM sets the final design and crafting parameters.</p>`}</div>
         </div>
         ${approved ? `<div class="ginv-grid ginv-project-section">
-          <div class="ginv-panel"><h3>Schematic</h3><div class="ginv-chips"><span class="ginv-chip action">Level ${fx.level}</span><span class="ginv-chip">Difficulty -${fx.difficultyReduction}</span><span class="ginv-chip">Time ${fx.timePct >= 0 ? "+" : ""}${fx.timePct}%</span><span class="ginv-chip">HP ${fx.hardPointsDelta >= 0 ? "+" : ""}${fx.hardPointsDelta}</span>${fx.variantUnlocked ? `<span class="ginv-chip good">Variant Unlocked</span>` : ""}</div><p><strong>Automatic crafting:</strong> ${fx.autoSuccess} Success · ${fx.autoAdvantage} Advantage · ${fx.autoThreat} Threat</p><table class="ginv-table"><thead><tr><th>Design</th><th>Result</th><th>When</th></tr></thead><tbody>${entries || `<tr><td colspan="3">No schematic checks recorded.</td></tr>`}</tbody></table>${canDevelop && fx.level < 4 ? `<div class="ginv-row" style="margin-top:10px"><button class="ginv-btn action" data-roll-schematic>🎲 Roll Schematic · ${difficultyLabel(SCHEMATIC_LEVELS[fx.level + 1]?.difficulty ?? 0)}</button><button class="ginv-btn primary" data-schematic>${fx.level ? "Record / Spend Result" : "Record / Spend Result"}</button></div><div class="ginv-help">Rolls ${esc(projectSchematicSkill(project, actor))} for Schematic Level ${fx.level + 1}. Record the resolved Success/Advantage/Threat/Triumph/Despair with the second button.</div>` : ""}</div>
-          <div class="ginv-panel"><h3>Components</h3>${project.concept?.baseSource?.useAsComponent ? `<div class="ginv-callout"><strong>Base object contributes:</strong> Tier 3 ${currencyAmount(components.contribution?.tier3 ?? 0)} · Tier 5 ${currencyAmount(components.contribution?.tier5 ?? 0)} · Tier 7 ${currencyAmount(components.contribution?.tier7 ?? 0)}.</div>` : ""}<table class="ginv-table"><thead><tr><th>Tier</th><th>Required</th><th>Acquired</th></tr></thead><tbody><tr><td>Tier 3</td><td>${currencyAmount(components.tier3)}</td><td><input type="number" min="0" step="1" data-acq="tier3" value="${acquired.tier3}"></td></tr><tr><td>Tier 5</td><td>${currencyAmount(components.tier5)}</td><td><input type="number" min="0" step="1" data-acq="tier5" value="${acquired.tier5}"></td></tr><tr><td>Tier 7</td><td>${currencyAmount(components.tier7)}</td><td><input type="number" min="0" step="1" data-acq="tier7" value="${acquired.tier7}"></td></tr></tbody></table><div class="ginv-row" style="margin-top:10px"><button class="ginv-btn" data-save-components>Save Components</button><span class="${enoughComponents ? "ginv-good" : "ginv-warn"}">${enoughComponents ? "Component requirement met." : "More components are required."}</span></div><p class="ginv-help">Approximate carried component encumbrance at the supplement's guideline of 1 ENC per 500 ${esc(worldCurrencyLabel())}: ${number1((Number(acquired.tier3)+Number(acquired.tier5)+Number(acquired.tier7))/500)} ENC.</p></div>
+          <div class="ginv-panel"><h3>Schematic</h3><div class="ginv-chips"><span class="ginv-chip action">Level ${fx.level}</span><span class="ginv-chip">Difficulty -${fx.difficultyReduction}</span><span class="ginv-chip">Time ${fx.timePct >= 0 ? "+" : ""}${fx.timePct}%</span><span class="ginv-chip">HP ${fx.hardPointsDelta >= 0 ? "+" : ""}${fx.hardPointsDelta}</span>${fx.variantUnlocked ? `<span class="ginv-chip good">Variant Unlocked</span>` : ""}</div><p><strong>Automatic crafting:</strong> ${fx.autoSuccess} Success · ${fx.autoAdvantage} Advantage · ${fx.autoThreat} Threat</p><table class="ginv-table"><thead><tr><th>Design</th><th>Result</th><th>When</th></tr></thead><tbody>${entries || `<tr><td colspan="3">No schematic checks recorded.</td></tr>`}</tbody></table>${canDevelop && fx.level < 4 ? (pendingSchematic ? `<div class="ginv-callout ${pendingSchematic.success ? "ginv-good" : "ginv-warn"}" style="margin-top:10px"><strong>Pending Schematic Level ${integer(pendingSchematic.level)}</strong><br>${pendingSchematic.success ? `${integer(pendingSchematic.result?.success)} net Success` : "Failed"} · Advantage ${integer(pendingSchematic.result?.advantage)} · Triumph ${integer(pendingSchematic.result?.triumph)} · Threat ${integer(pendingSchematic.result?.threat)} · Despair ${integer(pendingSchematic.result?.despair)}<div class="ginv-row" style="margin-top:8px"><button class="ginv-btn primary" data-schematic>Resolve / Spend Result</button></div><div class="ginv-help">The roll is already registered. Resolve its remaining symbols to finish this Schematic attempt.</div></div>` : `<div class="ginv-row" style="margin-top:10px"><button class="ginv-btn action" data-roll-schematic>🎲 Roll Schematic · ${difficultyLabel(SCHEMATIC_LEVELS[fx.level + 1]?.difficulty ?? 0)}</button></div><div class="ginv-help">Rolls ${esc(projectSchematicSkill(project, actor))} for Schematic Level ${fx.level + 1}. If the roll has only Success/Failure, the attempt is recorded automatically. Advantage/Threat/Triumph/Despair create a pending result for spending.</div>`) : ""}</div>
+          <div class="ginv-panel"><h3>Components</h3>${project.concept?.baseSource?.useAsComponent ? `<div class="ginv-callout"><strong>Base object contributes:</strong> Tier 3 ${currencyAmount(components.contribution?.tier3 ?? 0)} · Tier 5 ${currencyAmount(components.contribution?.tier5 ?? 0)} · Tier 7 ${currencyAmount(components.contribution?.tier7 ?? 0)}.</div>` : ""}<div class="ginv-callout"><strong>Actor Stockpile:</strong> Tier 3 ${currencyAmount(stockpileTotalsForActor.tier3)} · Tier 5 ${currencyAmount(stockpileTotalsForActor.tier5)} · Tier 7 ${currencyAmount(stockpileTotalsForActor.tier7)}.<br><span class="ginv-help">The Stockpile records gathered material batches. Project Acquired values remain a separate project allocation so one batch is not silently spent on the wrong craft.</span></div><table class="ginv-table"><thead><tr><th>Tier</th><th>Required</th><th>Acquired</th></tr></thead><tbody><tr><td>Tier 3</td><td>${currencyAmount(components.tier3)}</td><td><input type="number" min="0" step="1" data-acq="tier3" value="${acquired.tier3}"></td></tr><tr><td>Tier 5</td><td>${currencyAmount(components.tier5)}</td><td><input type="number" min="0" step="1" data-acq="tier5" value="${acquired.tier5}"></td></tr><tr><td>Tier 7</td><td>${currencyAmount(components.tier7)}</td><td><input type="number" min="0" step="1" data-acq="tier7" value="${acquired.tier7}"></td></tr></tbody></table><div class="ginv-row" style="margin-top:10px"><button class="ginv-btn" data-save-components>Save Components</button><span class="${enoughComponents ? "ginv-good" : "ginv-warn"}">${enoughComponents ? "Component requirement met." : "More components are required."}</span></div><p class="ginv-help">Approximate carried component encumbrance at the supplement's guideline of 1 ENC per 500 ${esc(worldCurrencyLabel())}: ${number1((Number(acquired.tier3)+Number(acquired.tier5)+Number(acquired.tier7))/500)} ENC.</p></div>
         </div>` : ""}
         ${approved ? `<div class="ginv-panel ginv-project-section"><h3>Final Crafting</h3><p>Current final check: <strong>${esc(rules.craftingSkill)}</strong> at <strong>${difficultyLabel(currentCraftingDifficulty(project))}</strong>, with ${fx.autoSuccess} automatic Success, ${fx.autoAdvantage} automatic Advantage, and ${fx.autoThreat} automatic Threat.</p>${project.status !== "completed" ? `<button class="ginv-btn action" data-roll-crafting>🎲 Roll ${esc(rules.craftingSkill)}</button><span class="ginv-sub">Builds the dice pool from ${esc(actor?.name ?? "the inventor")} and records the resulting chat roll in this project.</span>` : ""}${canDevelop ? `<div class="ginv-row" style="margin-top:10px"><button class="ginv-btn ${enoughComponents ? "primary" : ""}" data-ready ${enoughComponents ? "" : "disabled"}>Request Final Crafting</button>${!enoughComponents ? `<span class="ginv-sub">Acquire the required Tier 3 / 5 / 7 components before requesting the final craft.</span>` : ""}</div>` : ""}${project.status === "ready" ? `<div class="ginv-callout">The project is marked ready for the GM to resolve the final crafting check and create the finished object.</div>` : ""}${game.user.isGM && ["approved","building","ready"].includes(project.status) ? `<button class="ginv-btn good" style="margin-top:10px" data-complete>GM: Complete & Create</button>` : ""}${project.status === "completed" ? (project.completion?.vehicleActorId ? `<div class="ginv-finished-card"><div class="ginv-finished-label">Finished Vehicle</div><div class="ginv-finished-name">${esc(project.completion?.itemName ?? approved.name)}</div><div><strong>Created as:</strong> Vehicle Actor</div>${archivedLabel ? `<div><strong>Archived in:</strong> ${esc(archivedLabel)}</div>` : ""}<div class="ginv-row" style="margin-top:10px"><button class="ginv-btn primary" data-open-vehicle ${completedVehicle ? "" : "disabled"}>Open Vehicle</button><button class="ginv-btn" data-open-actor>Open Inventor</button>${game.user.isGM && archivedUuid ? `<button class="ginv-btn" data-open-compendium>Open Compendium Copy</button>` : ""}</div></div>` : `<div class="ginv-finished-card"><div class="ginv-finished-label">Finished Item</div><div class="ginv-finished-name">${esc(project.completion?.itemName ?? approved.name)}</div><div><strong>Added to:</strong> ${esc(actor?.name ?? "Unknown Character")}</div>${archivedLabel ? `<div><strong>Archived in:</strong> ${esc(archivedLabel)}</div>` : ""}<div class="ginv-row" style="margin-top:10px"><button class="ginv-btn primary" data-open-actor>Open Character Sheet</button><button class="ginv-btn" data-open-item ${completedItem ? "" : "disabled"}>Open Item</button>${game.user.isGM && archivedUuid ? `<button class="ginv-btn" data-open-compendium>Open Compendium Copy</button>` : ""}</div></div>`) : ""}</div>` : ""}
         ${approved ? `<div class="ginv-panel ginv-project-section"><h3>Project Rolls</h3><div class="ginv-roll-log">${rolls || `<div class="ginv-sub">No project rolls recorded yet.</div>`}</div><p class="ginv-help">This log is generated by the module from actual Genesys chat rolls. Players can view it but cannot edit the Project Journal.</p></div>` : ""}
@@ -2502,18 +2784,23 @@ async function openProject(journal, parentState, returnToWorkshop) {
 
 function openWorkshop(initialActorId = null) {
   document.querySelectorAll(".ginv-overlay").forEach(node => node.remove());
-  const characters = ownerCharacters();
-  if (!characters.length) {
-    ui.notifications.warn("You do not own any Character actors.");
+  const playerActors = playerInventorActors();
+  const npcActors = gmNpcInventorActors();
+  const availableActors = [...playerActors, ...npcActors];
+  if (!availableActors.length) {
+    ui.notifications.warn(game.user?.isGM ? "No supported inventor Actors are available." : "You do not own any Character actors.");
     return;
   }
-  const allCharacters = characters;
-  const selected = allCharacters.find(a => a.id === initialActorId) ?? allCharacters[0] ?? null;
-  const state = {theme: storedTheme(), textSize: storedTextSize(), actorId: selected?.id ?? "", view: "home", projectFilter: "all"};
+  const selected = availableActors.find(a => a.id === initialActorId) ?? playerActors[0] ?? npcActors[0] ?? null;
+  const selectedIsNpc = npcActors.some(actor => actor.id === selected?.id);
+  const state = {theme: storedTheme(), textSize: storedTextSize(), actorId: selected?.id ?? "", actorMode: selectedIsNpc ? "npc" : "player", view: "home", projectFilter: "all"};
+  const activeActorList = () => game.user?.isGM && state.actorMode === "npc" ? npcActors : playerActors;
   const overlay = document.createElement("div"); overlay.className = "ginv-overlay"; document.body.appendChild(overlay);
   const close = () => { overlay.remove(); removeRestoreButtons(); };
 
   function renderHome() {
+    const list = activeActorList();
+    if (!list.some(a => a.id === state.actorId)) state.actorId = list[0]?.id ?? "";
     const actor = game.actors.get(state.actorId);
     const projects = actor ? projectsForActor(actor.id) : [];
     const pending = game.user.isGM ? projectJournals().filter(j => projectFromJournal(j)?.status === "pending") : [];
@@ -2523,9 +2810,10 @@ function openWorkshop(initialActorId = null) {
         <div class="ginv-home-summary">
           <div class="ginv-panel ginv-home-character">
             <div class="ginv-field">
-              <label>Inventor Character</label>
-              <select data-actor>${allCharacters.map(a => `<option value="${a.id}" ${a.id === state.actorId ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+              <label>${game.user.isGM && state.actorMode === "npc" ? "NPC / Test Inventor" : "Inventor Character"}</label>
+              <select data-actor>${list.map(a => `<option value="${a.id}" ${a.id === state.actorId ? "selected" : ""}>${esc(a.name)}${game.user.isGM && state.actorMode === "npc" ? ` · ${esc(a.type)}` : ""}</option>`).join("")}</select>
             </div>
+            ${game.user.isGM ? `<div class="ginv-row" style="align-self:end"><button type="button" class="ginv-btn ${state.actorMode === "npc" ? "action" : ""}" data-actor-mode>${state.actorMode === "npc" ? "Use Player Characters" : "Choose NPC / Test Actor"}</button></div>` : ""}
             <div class="ginv-home-counts">
               <div class="ginv-counter"><div class="ginv-counter-label">Projects</div><div class="ginv-counter-value">${projects.length}</div></div>
               ${game.user.isGM ? `<div class="ginv-counter"><div class="ginv-counter-label">Pending</div><div class="ginv-counter-value">${pending.length}</div></div>` : ""}
@@ -2536,7 +2824,7 @@ function openWorkshop(initialActorId = null) {
         <div class="ginv-home-cards">
           <button type="button" class="ginv-card" data-new ${actor ? "" : "disabled"}><div class="ginv-icon">✦</div><h2>New Invention</h2><p class="ginv-help">Create a new design from scratch or use an existing item as the starting point.</p></button>
           <button type="button" class="ginv-card" data-projects ${actor ? "" : "disabled"}><div class="ginv-icon">⚙</div><h2>My Projects</h2><p class="ginv-help">Open designs, track schematics and components, then prepare the final crafting check.</p></button>
-          <button type="button" class="ginv-card" data-gather ${actor ? "" : "disabled"}><div class="ginv-icon">⛏</div><h2>Gather Components</h2><p class="ginv-help">Roll to collect setting-appropriate materials and see what kinds of crafting they can support.</p></button>
+          <button type="button" class="ginv-card" data-gather ${actor ? "" : "disabled"}><div class="ginv-icon">⛏</div><h2>Components & Gathering</h2><p class="ginv-help">View the selected Actor's Component Stockpile, gather new materials, and see what kinds of crafting each batch can support.</p></button>
           ${game.user.isGM ? `<button type="button" class="ginv-card" data-review-queue><div class="ginv-icon">◆</div><h2>GM Review Queue</h2><p class="ginv-help">Review submitted designs and projects ready for final crafting. ${pending.length ? `<strong>${pending.length} awaiting approval.</strong>` : "Nothing is waiting for approval."}</p></button>` : ""}
           <button type="button" class="ginv-card" data-rules><div class="ginv-icon">📖</div><h2>Crafting Rules & Components</h2><p class="ginv-help">Schematic rules, component tiers, deconstruction, and examples for sourcing materials in different crafts.</p></button>
           <div class="ginv-panel">
@@ -2556,10 +2844,15 @@ function openWorkshop(initialActorId = null) {
     </div>`;
     bindShellControls(overlay, state, renderHome, close);
     bindField(overlay, "[data-actor]", v => { state.actorId = v; renderHome(); }, "change");
+    overlay.querySelector("[data-actor-mode]")?.addEventListener("click", () => {
+      state.actorMode = state.actorMode === "npc" ? "player" : "npc";
+      state.actorId = activeActorList()[0]?.id ?? "";
+      renderHome();
+    });
     overlay.querySelector("[data-new]")?.addEventListener("click", () => {
       const actorNow = game.actors.get(state.actorId);
-      if (!isOwnerCharacter(actorNow)) {
-        ui.notifications.warn("You must have OWNER permission for the inventor Character.");
+      if (!canUseInventorActor(actorNow)) {
+        ui.notifications.warn("You cannot use that Actor as the inventor.");
         return;
       }
       close(); openNewInvention(actorNow, state, () => openWorkshop(actorNow.id));
@@ -2572,10 +2865,10 @@ function openWorkshop(initialActorId = null) {
 
   function renderGathering() {
     const actor = game.actors.get(state.actorId);
-    if (!isOwnerCharacter(actor)) { renderHome(); return; }
+    if (!canUseInventorActor(actor)) { renderHome(); return; }
     state.gatherDomain ??= gatheringDomainsForWorld()[0]?.[0] ?? "smithing";
-    state.gatherDifficulty ??= 2;
     state.gatherTier ??= 3;
+    state.gatherDifficulty ??= recommendedGatheringDifficulty(state.gatherTier);
     const domain = GATHERING_DOMAINS[state.gatherDomain] ?? GATHERING_DOMAINS.smithing;
     state.gatherSkill ??= recommendedGatheringSkill(actor, state.gatherDomain);
     const allActorSkills = actor.items.filter(item=>item.type==="skill").sort((a,b)=>a.name.localeCompare(b.name));
@@ -2585,14 +2878,18 @@ function openWorkshop(initialActorId = null) {
     if (!actorSkills.some(item => item.name === state.gatherSkill)) state.gatherSkill = recommendedGatheringSkill(actor, state.gatherDomain) || actorSkills[0]?.name || "";
     const skillOptions = actorSkills.map(item=>`<option value="${esc(item.name)}" ${item.name===state.gatherSkill?"selected":""}>${esc(item.name)}</option>`).join("");
     const domainOptions = gatheringDomainsForWorld().map(([id,d])=>`<option value="${id}" ${id===state.gatherDomain?"selected":""}>${esc(d.label)} · ${esc(d.componentType)}</option>`).join("");
-    overlay.innerHTML=`<div class="ginv-shell" data-theme="${state.theme}" style="--ginv-text-adjust:${state.textSize}px">${shellHeader("Gather Components", `${actor.name} · матеріали для винаходів і крафту`, state)}<main class="ginv-main"><div class="ginv-panel"><div class="ginv-grid3"><div class="ginv-field"><label>Тип збору</label><select data-gather-domain>${domainOptions}</select></div><div class="ginv-field"><label>Skill</label><select data-gather-skill>${skillOptions}</select></div><div class="ginv-field"><label>Difficulty</label><select data-gather-difficulty>${[0,1,2,3,4,5].map(n=>`<option value="${n}" ${Number(state.gatherDifficulty)===n?"selected":""}>${difficultyLabel(n)}</option>`).join("")}</select></div><div class="ginv-field"><label>Target Tier</label><select data-gather-tier>${[3,5,7].map(n=>`<option value="${n}" ${Number(state.gatherTier)===n?"selected":""}>Tier ${n}</option>`).join("")}</select></div></div><div class="ginv-callout" style="margin-top:12px"><strong>${esc(domain.componentType)}</strong><p><b>Підходять для:</b> ${esc(domain.uses)}</p><p><b>Приклади:</b> ${esc(domain.examples ?? "")}</p><p class="ginv-help">Для обраного типу модуль спочатку пропонує пов’язані з ним Skill-и персонажа. Кидок визначає успішність пошуку/добування. Wonderous Inventions не задає універсальну вартість польового збору, тому GM призначає кількість ${esc(worldCurrencyLabel())}, яку дає знахідка.</p></div><button class="ginv-btn primary" data-gather-roll>🎲 Roll ${esc(state.gatherSkill || "Skill")}</button></div><div class="ginv-gather-reference">${gatheringReferenceHTML()}</div></main><footer class="ginv-foot"><button class="ginv-btn" data-home>← Inventions</button><div class="ginv-spacer"></div><span class="ginv-sub">Компоненти нижче є прикладами Workshop guidance; Tier і вартість затверджує GM.</span></footer></div>`;
+    const stockpile = actorComponentStockpile(actor);
+    const totals = stockpileTotals(stockpile);
+    const perSuccess = gatheringYieldPerSuccess(state.gatherTier);
+    const recommended = recommendedGatheringDifficulty(state.gatherTier);
+    overlay.innerHTML=`<div class="ginv-shell" data-theme="${state.theme}" style="--ginv-text-adjust:${state.textSize}px">${shellHeader("Gather Components", `${actor.name} · матеріали для винаходів і крафту`, state)}<main class="ginv-main"><div class="ginv-panel"><div class="ginv-grid3"><div class="ginv-field"><label>Тип збору</label><select data-gather-domain>${domainOptions}</select></div><div class="ginv-field"><label>Skill</label><select data-gather-skill>${skillOptions}</select></div><div class="ginv-field"><label>Difficulty</label><select data-gather-difficulty>${[0,1,2,3,4,5].map(n=>`<option value="${n}" ${Number(state.gatherDifficulty)===n?"selected":""}>${difficultyLabel(n)}</option>`).join("")}</select></div><div class="ginv-field"><label>Target Tier</label><select data-gather-tier>${[3,5,7].map(n=>`<option value="${n}" ${Number(state.gatherTier)===n?"selected":""}>Tier ${n}</option>`).join("")}</select></div></div><div class="ginv-callout" style="margin-top:12px"><strong>${esc(domain.componentType)}</strong><p><b>Підходять для:</b> ${esc(domain.uses)}</p><p><b>Приклади:</b> ${esc(domain.examples ?? "")}</p><p><b>Workshop yield:</b> ${currencyAmount(perSuccess)} за кожен net Success. Рекомендована мінімальна складність для Tier ${state.gatherTier}: <strong>${difficultyLabel(recommended)}</strong>.</p><p class="ginv-help">Це модульне Workshop guidance, а не RAW Wonderous Inventions. Advantage/Threat/Triumph/Despair лишаються для якості знахідки, часу, небезпек або сюжетних ускладнень.</p></div><button class="ginv-btn primary" data-gather-roll>🎲 Roll ${esc(state.gatherSkill || "Skill")}</button></div><div class="ginv-panel" style="margin-top:14px"><h2>Component Stockpile · ${esc(actor.name)}</h2><div class="ginv-chips"><span class="ginv-chip">Tier 3 · ${currencyAmount(totals.tier3)}</span><span class="ginv-chip">Tier 5 · ${currencyAmount(totals.tier5)}</span><span class="ginv-chip">Tier 7 · ${currencyAmount(totals.tier7)}</span><span class="ginv-chip action">Total · ${currencyAmount(totals.total)}</span></div><p class="ginv-help">Зібрані матеріали реєструються автоматично після успішного Gathering roll. Кожен запис зберігає тип матеріалу, Tier, Skill і посилання на фактичний chat roll.</p>${stockpileRowsHTML(actor)}</div><div class="ginv-gather-reference">${gatheringReferenceHTML()}</div></main><footer class="ginv-foot"><button class="ginv-btn" data-home>← Inventions</button><div class="ginv-spacer"></div><span class="ginv-sub">Field-gathering yield is explicit Workshop guidance; source Tier rules remain unchanged.</span></footer></div>`;
     bindShellControls(overlay,state,renderGathering,close);
     overlay.querySelector("[data-home]")?.addEventListener("click",renderHome);
     bindField(overlay,"[data-gather-domain]",v=>{state.gatherDomain=v;state.gatherSkill=recommendedGatheringSkill(actor,v);renderGathering();},"change");
     bindField(overlay,"[data-gather-skill]",v=>{state.gatherSkill=v;renderGathering();},"change");
     bindField(overlay,"[data-gather-difficulty]",v=>state.gatherDifficulty=clamp(integer(v),0,5),"change");
-    bindField(overlay,"[data-gather-tier]",v=>state.gatherTier=[3,5,7].includes(integer(v))?integer(v):3,"change");
-    overlay.querySelector("[data-gather-roll]")?.addEventListener("click",async()=>{try{if(!state.gatherSkill)throw new Error("Choose a Skill first.");await openGatheringRollPrompt(actor,{domainId:state.gatherDomain,skillName:state.gatherSkill,difficulty:state.gatherDifficulty,tier:state.gatherTier});}catch(error){ui.notifications.error(error.message);}});
+    bindField(overlay,"[data-gather-tier]",v=>{state.gatherTier=[3,5,7].includes(integer(v))?integer(v):3;state.gatherDifficulty=recommendedGatheringDifficulty(state.gatherTier);renderGathering();},"change");
+    overlay.querySelector("[data-gather-roll]")?.addEventListener("click",async()=>{try{if(!state.gatherSkill)throw new Error("Choose a Skill first.");await openGatheringRollPrompt(actor,{domainId:state.gatherDomain,skillName:state.gatherSkill,difficulty:state.gatherDifficulty,tier:state.gatherTier,onRecorded:renderGathering});}catch(error){ui.notifications.error(error.message);}});
   }
 
   function renderRules() {
@@ -2616,8 +2913,8 @@ function openWorkshop(initialActorId = null) {
     bindShellControls(overlay, state, renderProjects, close);
     overlay.querySelector("[data-home]")?.addEventListener("click", renderHome);
     overlay.querySelector("[data-new]")?.addEventListener("click", () => {
-      if (!isOwnerCharacter(actor)) {
-        ui.notifications.warn("You must have OWNER permission for the inventor Character.");
+      if (!canUseInventorActor(actor)) {
+        ui.notifications.warn("You cannot use that Actor as the inventor.");
         return;
       }
       close(); openNewInvention(actor, state, () => openWorkshop(actor.id));
@@ -2651,9 +2948,55 @@ function openWorkshop(initialActorId = null) {
   renderHome();
 }
 
+async function ensureLauncherMacro() {
+  if (!game.user?.isGM) return null;
+
+  const launcherCommand = `const api = game.genesysInventions ?? game.modules.get("${MODULE_ID}")?.api; if (!api?.open) { ui.notifications.error("Genesys Inventions module is not active."); } else { api.open(); }`;
+  const ownershipDefault = CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OBSERVER ?? 2;
+  const existing = game.macros.find(macro =>
+    macro.getFlag?.(MODULE_ID, "kind") === "launcher" ||
+    macro.name === "Genesys Inventions"
+  );
+
+  if (existing) {
+    const updates = {};
+    if (existing.name !== "Genesys Inventions") updates.name = "Genesys Inventions";
+    if (existing.type !== "script") updates.type = "script";
+    if (existing.img !== "icons/svg/portal.svg") updates.img = "icons/svg/portal.svg";
+    if (existing.command !== launcherCommand) updates.command = launcherCommand;
+    if ((existing.ownership?.default ?? 0) < ownershipDefault) {
+      updates.ownership = { ...(existing.ownership ?? {}), default: ownershipDefault };
+    }
+    if (Object.keys(updates).length) {
+      try { await existing.update(updates); }
+      catch (error) { console.warn("Genesys Inventions | Could not update launcher Macro", error); }
+    }
+    if (existing.getFlag?.(MODULE_ID, "kind") !== "launcher") {
+      try { await existing.setFlag(MODULE_ID, "kind", "launcher"); } catch (_) {}
+    }
+    return existing;
+  }
+
+  try {
+    return await Macro.create({
+      name: "Genesys Inventions",
+      type: "script",
+      img: "icons/svg/portal.svg",
+      scope: "global",
+      command: launcherCommand,
+      ownership: { default: ownershipDefault },
+      flags: { [MODULE_ID]: { kind: "launcher", version: MODULE_VERSION } }
+    });
+  } catch (error) {
+    console.error("Genesys Inventions | Could not create launcher Macro", error);
+    ui.notifications.warn(`Genesys Inventions could not create its launcher Macro: ${error.message}`);
+    return null;
+  }
+}
+
 function addActorSheetButton(app, html) {
   const actor = app?.actor ?? app?.document;
-  if (!isOwnerCharacter(actor)) return;
+  if (!canUseInventorActor(actor)) return;
   const root = html instanceof HTMLElement ? html : html?.[0];
   if (!root) return;
   const appRoot = root.closest?.(".app") ?? root;
@@ -2690,6 +3033,7 @@ Hooks.once("ready", () => {
       console.error("Genesys Inventions | Could not prepare invention Compendia", error);
       ui.notifications.warn(`Genesys Inventions could not prepare its Compendia: ${error.message}`);
     });
+    ensureLauncherMacro();
   }
   const api = {
     version: MODULE_VERSION,
