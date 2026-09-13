@@ -1,0 +1,34 @@
+{
+  "id": "genesys-inventions",
+  "title": "Genesys Inventions",
+  "description": "Player-facing invention, vehicle, schematic, component, and created-content manager for Genesys, based on Wonderous Inventions.",
+  "version": "0.2.1",
+  "authors": [
+    {
+      "name": "Nyliss / Seth"
+    }
+  ],
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "genesys",
+        "type": "system",
+        "compatibility": {
+          "minimum": "0.2.19",
+          "verified": "0.2.19"
+        }
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/inventions.js"
+  ],
+  "styles": [
+    "styles/inventions.css"
+  ],
+  "socket": true
+}

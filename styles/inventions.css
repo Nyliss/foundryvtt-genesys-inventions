@@ -1,0 +1,1168 @@
+/* Genesys Inventions v0.2.0
+ * UI shell deliberately uses stronger selectors than Foundry's global form/button rules.
+ */
+
+.ginv-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, .38);
+}
+
+.ginv-shell,
+.ginv-shell * {
+  box-sizing: border-box;
+}
+
+.ginv-shell {
+  --bg: #1A0F0A;
+  --panel: #3A2316;
+  --raised: #5B3B2A;
+  --raised-2: #6B4733;
+  --text: #E5D8CF;
+  --muted: #B79B89;
+  --action: #C85A35;
+  --action-soft: rgba(200, 90, 53, .16);
+  --border: #7A5845;
+  --input: #24150F;
+  --good: #A8E0B5;
+  --warn: #F0D38A;
+  --bad: #F6A4A4;
+
+  width: min(1240px, 96vw);
+  height: min(880px, 94vh);
+  min-height: 420px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .58);
+
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: calc(14px + var(--ginv-text-adjust, 0px));
+  line-height: 1.35;
+}
+
+.ginv-shell[data-theme="light"] {
+  --bg: #D4C2B6;
+  --panel: #B69C8B;
+  --raised: #A68C7B;
+  --raised-2: #987968;
+  --text: #24150F;
+  --muted: #5B3B2A;
+  --action: #C85A35;
+  --action-soft: rgba(200, 90, 53, .13);
+  --border: #7A5845;
+  --input: #E8DDD5;
+  --good: #315F3A;
+  --warn: #6B5412;
+  --bad: #7D2929;
+}
+
+.ginv-shell[data-theme="slate"] {
+  --bg: #222831;
+  --panel: #303844;
+  --raised: #3E4856;
+  --raised-2: #475363;
+  --text: #E6EBF0;
+  --muted: #AAB5C2;
+  --action: #4D8EDB;
+  --action-soft: rgba(77, 142, 219, .14);
+  --border: #59697A;
+  --input: #1D232B;
+  --good: #A8E0B5;
+  --warn: #F0D38A;
+  --bad: #F6A4A4;
+}
+
+/* ---------- Typography reset ---------- */
+
+.ginv-shell h1,
+.ginv-shell h2,
+.ginv-shell h3,
+.ginv-shell h4,
+.ginv-shell p {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  font-family: inherit;
+  line-height: 1.22;
+}
+
+.ginv-shell h2 { font-size: 1.18em; font-weight: 800; }
+.ginv-shell h3 { font-size: 1.05em; font-weight: 800; }
+.ginv-shell p + p { margin-top: .7em; }
+.ginv-shell strong { color: inherit; }
+
+.ginv-title {
+  margin: 0;
+  font-size: 1.62em;
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--text);
+}
+
+.ginv-sub {
+  margin: 0;
+  font-size: .88em;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.ginv-help {
+  margin: .38em 0 0;
+  color: var(--muted);
+  font-size: .96em;
+  line-height: 1.42;
+}
+
+/* ---------- Window chrome ---------- */
+
+.ginv-head,
+.ginv-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 18px;
+  background: var(--panel);
+}
+
+.ginv-head {
+  min-height: 74px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ginv-head > :first-child {
+  min-width: 0;
+}
+
+.ginv-head .ginv-sub {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ginv-foot {
+  min-height: 58px;
+  border-top: 1px solid var(--border);
+}
+
+.ginv-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  background: var(--bg);
+  scrollbar-gutter: stable;
+}
+
+.ginv-spacer { flex: 1 1 auto; }
+
+/* ---------- Buttons: override Foundry global button height ---------- */
+
+.ginv-shell button.ginv-btn,
+.ginv-shell button.ginv-card {
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: inherit;
+  text-transform: none;
+  text-shadow: none;
+  box-shadow: none;
+}
+
+.ginv-shell button.ginv-btn {
+  width: auto;
+  height: auto !important;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--raised);
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ginv-shell button.ginv-btn:hover:not(:disabled),
+.ginv-shell button.ginv-btn:focus-visible {
+  border-color: var(--action);
+  background: var(--raised-2);
+  box-shadow: 0 0 0 1px var(--action) inset;
+  outline: none;
+}
+
+.ginv-shell button.ginv-btn:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.ginv-shell button.ginv-btn.primary {
+  color: #fff;
+  border-color: var(--action);
+  background: var(--action);
+}
+
+.ginv-shell button.ginv-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ginv-shell button.ginv-btn.danger { border-color: var(--bad); }
+.ginv-shell button.ginv-btn.good { border-color: var(--good); }
+.ginv-shell button.ginv-btn.small {
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: .9em;
+}
+
+.ginv-textsize {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 46px;
+  min-height: 46px;
+  padding: 4px 5px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--raised);
+  white-space: nowrap;
+}
+
+.ginv-textsize > span {
+  margin-right: 3px;
+  font-size: .86em;
+  font-weight: 800;
+}
+
+.ginv-shell .ginv-textsize button.ginv-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px !important;
+  min-height: 34px;
+  padding: 0;
+}
+
+.ginv-head > button.ginv-btn[data-theme-btn],
+.ginv-head > button.ginv-btn[data-minimize],
+.ginv-head > button.ginv-btn[data-close] {
+  height: 46px !important;
+  min-height: 46px;
+}
+
+/* ---------- Panels / cards ---------- */
+
+.ginv-panel,
+.ginv-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.ginv-panel {
+  padding: 14px;
+}
+
+.ginv-panel > h2,
+.ginv-panel > h3 {
+  margin-bottom: 9px;
+}
+
+.ginv-cards,
+.ginv-home-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ginv-shell button.ginv-card {
+  width: 100%;
+  height: auto !important;
+  min-height: 128px;
+  margin: 0;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 13px;
+  row-gap: 5px;
+  align-items: start;
+
+  color: var(--text);
+  background: var(--panel);
+  text-align: left;
+  white-space: normal;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.ginv-shell button.ginv-card:hover:not(:disabled),
+.ginv-shell button.ginv-card.selected,
+.ginv-shell button.ginv-card:focus-visible {
+  border-color: var(--action);
+  background: linear-gradient(0deg, var(--action-soft), var(--action-soft)), var(--panel);
+  box-shadow: 0 0 0 1px var(--action) inset;
+  outline: none;
+}
+
+.ginv-shell button.ginv-card:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.ginv-card .ginv-icon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 1.45em;
+  line-height: 1;
+}
+
+.ginv-card h2 {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 1px 0 0;
+  font-size: 1.16em;
+  line-height: 1.2;
+}
+
+.ginv-card .ginv-help {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+}
+
+.ginv-card.selected .ginv-icon,
+.ginv-card:hover .ginv-icon {
+  border-color: var(--action);
+}
+
+/* ---------- Home ---------- */
+
+.ginv-home-summary {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 14px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.ginv-home-character {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.ginv-home-counts {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ginv-counter {
+  min-width: 96px;
+  padding: 9px 12px;
+  display: grid;
+  align-content: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--raised);
+}
+
+.ginv-counter-label {
+  color: var(--muted);
+  font-size: .78em;
+  font-weight: 700;
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.ginv-counter-value {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 1.38em;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ginv-workflow {
+  margin-top: 14px;
+  padding: 12px 14px;
+}
+
+.ginv-workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ginv-workflow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: .9em;
+  font-weight: 700;
+}
+
+.ginv-workflow-arrow {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+/* ---------- Forms ---------- */
+
+.ginv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ginv-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.ginv-grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ginv-wide { grid-column: 1 / -1; }
+
+.ginv-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  align-content: start;
+}
+
+.ginv-field label {
+  color: var(--text);
+  font-size: .92em;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ginv-shell .ginv-field input,
+.ginv-shell .ginv-field select,
+.ginv-shell .ginv-field textarea,
+.ginv-shell .ginv-table input,
+.ginv-shell .ginv-spendrow input,
+.ginv-shell .ginv-qrow input[type="number"] {
+  width: 100%;
+  height: auto;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 9px;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 1em;
+  line-height: 1.2;
+}
+
+.ginv-shell .ginv-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.ginv-shell .ginv-field input:focus,
+.ginv-shell .ginv-field select:focus,
+.ginv-shell .ginv-field textarea:focus,
+.ginv-shell .ginv-table input:focus,
+.ginv-shell .ginv-spendrow input:focus,
+.ginv-shell .ginv-qrow input[type="number"]:focus {
+  border-color: var(--action);
+  box-shadow: 0 0 0 1px var(--action) inset;
+  outline: none;
+}
+
+.ginv-shell option {
+  color: var(--text);
+  background: var(--input);
+}
+
+.ginv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ginv-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+}
+
+.ginv-toolbar > .ginv-field {
+  min-width: 170px;
+  flex: 1 1 170px;
+}
+
+.ginv-divider {
+  height: 1px;
+  margin: 12px 0;
+  background: var(--border);
+}
+
+/* ---------- Lists ---------- */
+
+.ginv-list {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.ginv-listrow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 50px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ginv-listrow:last-child { border-bottom: 0; }
+.ginv-listrow.selected { background: var(--action-soft); }
+.ginv-scroll { max-height: 430px; overflow: auto; }
+
+.ginv-itemrow {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+}
+
+.ginv-itemrow img {
+  width: 38px;
+  height: 38px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* ---------- Chips / statuses ---------- */
+
+.ginv-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ginv-chip,
+.ginv-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 29px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--raised);
+  font-size: .9em;
+}
+
+.ginv-chip.action { border-color: var(--action); }
+.ginv-chip.good { border-color: var(--good); }
+.ginv-chip.warn { border-color: var(--warn); }
+.ginv-chip.bad { border-color: var(--bad); }
+.ginv-stat { border-radius: 8px; }
+.ginv-stat strong { font-size: 1.05em; }
+
+.ginv-status {
+  font-size: .78em;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.ginv-status.pending { color: var(--warn); }
+.ginv-status.approved,
+.ginv-status.building,
+.ginv-status.completed { color: var(--good); }
+.ginv-status.ready { color: var(--action); }
+.ginv-status.rejected { color: var(--bad); }
+.ginv-good { color: var(--good); }
+.ginv-warn { color: var(--warn); }
+.ginv-bad { color: var(--bad); }
+
+.ginv-callout {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--action);
+  border-radius: 9px;
+  background: var(--action-soft);
+  line-height: 1.4;
+}
+
+/* ---------- Quality browser ---------- */
+
+.ginv-quality-grid {
+  max-height: 330px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  overflow: auto;
+}
+
+.ginv-qrow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 82px;
+  gap: 8px;
+  align-items: center;
+  min-height: 58px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ginv-qrow:nth-child(odd) { border-right: 1px solid var(--border); }
+.ginv-shell .ginv-qrow input[type="checkbox"] { width: 18px; height: 18px; margin: 0; }
+.ginv-shell .ginv-qrow input[type="number"] { min-height: 34px; }
+
+/* ---------- Wizard ---------- */
+
+.ginv-stepbar {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 13px;
+}
+
+.ginv-step {
+  min-height: 31px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--raised);
+  font-size: .9em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ginv-step.active {
+  border-color: var(--action);
+  color: var(--text);
+  background: var(--action-soft);
+  box-shadow: 0 0 0 1px var(--action) inset;
+}
+
+/* ---------- Tables / spending ---------- */
+
+.ginv-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.ginv-table th,
+.ginv-table td {
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ginv-table th {
+  color: var(--muted);
+  font-size: .86em;
+  font-weight: 800;
+}
+
+.ginv-table tr:last-child td { border-bottom: 0; }
+.ginv-table input { min-width: 90px; }
+
+.ginv-spendrow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ginv-spendrow:last-child { border-bottom: 0; }
+.ginv-budget { margin-bottom: 8px; font-weight: 800; line-height: 1.35; }
+
+/* ---------- Project view ---------- */
+
+.ginv-project-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 2px 0 4px;
+}
+
+.ginv-project-head h2 { margin: 0; font-size: 1.35em; }
+.ginv-project-section { margin-top: 14px; }
+.ginv-log { max-height: 220px; overflow: auto; }
+.ginv-logrow { padding: 7px 0; border-bottom: 1px solid var(--border); }
+.ginv-logrow:last-child { border-bottom: 0; }
+
+/* ---------- Character sheet launcher ---------- */
+
+.ginv-sheet-button { margin-left: 6px; min-width: 34px; }
+
+.ginv-restore {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 100005;
+  width: auto;
+  min-height: 48px;
+  max-width: min(520px, 58vw);
+  padding: 11px 18px;
+  transform: translateX(-50%);
+  border: 2px solid #4D8EDB;
+  border-radius: 10px;
+  color: #E6EBF0;
+  background: #303844;
+  box-shadow: 0 8px 28px rgba(0,0,0,.48);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: normal;
+  cursor: pointer;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 920px) {
+  .ginv-home-summary { grid-template-columns: 1fr; }
+  .ginv-home-character { grid-template-columns: 1fr; align-items: stretch; }
+  .ginv-home-counts { justify-content: flex-start; }
+  .ginv-grid3,
+  .ginv-grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ginv-quality-grid { grid-template-columns: 1fr; }
+  .ginv-qrow:nth-child(odd) { border-right: 0; }
+}
+
+@media (max-width: 760px) {
+  .ginv-overlay { padding: 8px; }
+  .ginv-shell { width: 100%; height: 97vh; }
+  .ginv-head { flex-wrap: wrap; padding: 10px 12px; }
+  .ginv-head > :first-child { flex: 1 1 100%; }
+  .ginv-head .ginv-spacer { display: none; }
+  .ginv-main { padding: 12px; }
+  .ginv-foot { padding: 10px 12px; flex-wrap: wrap; }
+  .ginv-cards,
+  .ginv-home-cards,
+  .ginv-grid,
+  .ginv-grid3,
+  .ginv-grid4 { grid-template-columns: 1fr; }
+  .ginv-wide { grid-column: auto; }
+  .ginv-listrow,
+  .ginv-project-head { grid-template-columns: 1fr; }
+  .ginv-itemrow { grid-template-columns: 42px minmax(0, 1fr); }
+  .ginv-itemrow > .ginv-btn { grid-column: 1 / -1; justify-self: stretch; }
+  .ginv-shell button.ginv-card { min-height: 112px; }
+}
+
+/* ---------- v0.1.2 interaction hardening ---------- */
+
+.ginv-shell button.ginv-btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ginv-head > button.ginv-btn,
+.ginv-textsize > button.ginv-btn {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.ginv-shell .ginv-field input,
+.ginv-shell .ginv-field select,
+.ginv-shell .ginv-field textarea,
+.ginv-shell .ginv-table input,
+.ginv-shell .ginv-spendrow input,
+.ginv-shell .ginv-qrow input[type="number"] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ginv-shell .ginv-field input[type="search"] {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ginv-qrow.selected {
+  background: var(--action-soft);
+}
+
+.ginv-sub[hidden],
+.ginv-qrow[hidden],
+.ginv-listrow[hidden] {
+  display: none !important;
+}
+
+.ginv-restore {
+  color: var(--ginv-restore-text, #E6EBF0);
+  background: var(--ginv-restore-bg, #303844);
+  border-color: var(--ginv-restore-border, #4D8EDB);
+}
+
+.ginv-restore:hover,
+.ginv-restore:focus-visible {
+  box-shadow: 0 0 0 2px var(--ginv-restore-border, #4D8EDB), 0 8px 28px rgba(0,0,0,.52);
+  outline: none;
+}
+
+/* v0.1.3 */
+.ginv-finished-card{margin-top:12px;padding:14px;border:1px solid var(--action);border-radius:10px;background:var(--raised);display:grid;gap:5px;}
+.ginv-finished-label{font-size:.78em;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:800;}
+.ginv-finished-name{font-size:1.35em;font-weight:900;color:var(--text);}
+.ginv-roll-log{display:grid;gap:8px;max-height:260px;overflow:auto;}
+.ginv-rollrow{padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--raised);}
+.ginv-rules-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;}
+.ginv-rules-grid .ginv-panel{height:100%;}
+.ginv-rules-grid p{line-height:1.45;}
+@media(max-width:900px){.ginv-rules-grid{grid-template-columns:1fr;}}
+
+
+/* ---------- v0.1.4 native Genesys project roll prompt ---------- */
+.ginv-roll-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0,0,0,.48);
+}
+
+.ginv-shell.ginv-roll-prompt {
+  width: min(760px, 94vw);
+  height: auto;
+  min-height: 0;
+  max-height: 92vh;
+  display: block;
+  overflow: auto;
+  padding: 16px;
+}
+
+.ginv-roll-prompt-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ginv-roll-prompt-head > :first-child { min-width: 0; flex: 1; }
+.ginv-roll-prompt-head h2 { margin: 0 0 3px; color: var(--text); }
+
+.ginv-dice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.ginv-die-counter {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.ginv-die-counter.green { border-color: #56885d; }
+.ginv-die-counter.yellow { border-color: #b79d42; }
+.ginv-die-counter.blue { border-color: #5485aa; }
+.ginv-die-counter.purple { border-color: #82629b; }
+.ginv-die-counter.red { border-color: #a85a5a; }
+.ginv-die-counter.black { border-color: #666; }
+
+.ginv-die-stepper {
+  display: grid;
+  grid-template-columns: 38px minmax(34px, 1fr) 38px;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.ginv-die-stepper button {
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 7px !important;
+  background: var(--raised) !important;
+  color: var(--text) !important;
+  font: inherit !important;
+  font-weight: 900 !important;
+  cursor: pointer;
+}
+
+.ginv-die-stepper span {
+  text-align: center;
+  font-size: 1.2em;
+  font-weight: 900;
+}
+
+.ginv-roll-formula {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--input);
+  color: var(--muted);
+  font-family: monospace;
+  overflow-wrap: anywhere;
+}
+
+.ginv-roll-actions { margin-top: 12px; }
+
+@media(max-width:650px) {
+  .ginv-dice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------- v0.2.0 workshop, narrative dice, gathering ---------- */
+
+/* Compact actor-sheet shortcut. Foundry's header-control rules are intentionally overridden. */
+.ginv-sheet-button.header-control {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 112px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  margin: 0 2px !important;
+  padding: 0 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  border-radius: 4px !important;
+  white-space: nowrap !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+}
+
+.ginv-sheet-button.header-control i {
+  margin: 0 !important;
+  font-size: 12px !important;
+}
+
+.ginv-sheet-button.header-control span {
+  display: inline !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ginv-base-credit {
+  margin-top: 10px;
+}
+
+.ginv-gather-reference {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.ginv-gather-card {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.ginv-gather-card p {
+  margin-top: 7px;
+  line-height: 1.42;
+}
+
+.ginv-gather-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 1.08em;
+}
+
+.ginv-gather-title > span {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--action);
+  border-radius: 8px;
+  background: var(--action-soft);
+  font-size: 1.1em;
+}
+
+.ginv-gather-tiers {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+/* Narrative chat output. These cards live outside .ginv-shell, so all colors have fallbacks. */
+.ginv-chat-card {
+  --ginv-chat-text: var(--color-text-dark-primary, #191813);
+  --ginv-chat-muted: var(--color-text-dark-secondary, #4b4a44);
+  --ginv-chat-border: rgba(61, 84, 111, .38);
+  --ginv-chat-blue: #2d6597;
+  color: var(--ginv-chat-text);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.25;
+}
+
+.ginv-chat-card h3 {
+  margin: 8px 0 3px !important;
+  padding: 0 0 2px !important;
+  border: 0 !important;
+  border-bottom: 1px dotted rgba(45, 101, 151, .45) !important;
+  color: var(--ginv-chat-blue) !important;
+  font-family: "Roboto Condensed", Arial, sans-serif !important;
+  font-size: 1.16em !important;
+  font-weight: 900 !important;
+  letter-spacing: .015em;
+}
+
+.ginv-chat-rolling {
+  margin-bottom: 2px;
+  font-size: 1.04em;
+}
+
+.ginv-chat-context {
+  color: var(--ginv-chat-muted);
+  font-size: .9em;
+}
+
+.ginv-chat-results {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-size: 1.45em;
+}
+
+.ginv-chat-none {
+  color: var(--ginv-chat-muted);
+  font-size: .65em;
+  font-style: italic;
+}
+
+.ginv-chat-summary {
+  display: grid;
+  gap: 2px;
+}
+
+.ginv-chat-summary > div {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.ginv-chat-summary > div > span {
+  display: inline-grid;
+  place-items: center;
+  font-size: 1.1em;
+}
+
+.ginv-chat-summary b {
+  min-width: 24px;
+  text-align: right;
+}
+
+.ginv-chat-dice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding-top: 3px;
+}
+
+.ginv-chat-die {
+  display: inline-grid;
+  place-items: center;
+  min-width: 29px;
+  min-height: 29px;
+  padding: 3px;
+  border: 1px solid rgba(0, 0, 0, .28);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .48);
+  font-size: 1.2em;
+  font-weight: 900;
+  box-shadow: 0 1px 2px rgba(0,0,0,.14);
+}
+
+.ginv-chat-die.die-a { background: #5aaf62; }
+.ginv-chat-die.die-p { background: #e1c72e; }
+.ginv-chat-die.die-b { background: #66a8cf; }
+.ginv-chat-die.die-i { background: #8d63a9; }
+.ginv-chat-die.die-c { background: #b85555; }
+.ginv-chat-die.die-s { background: #626262; color: #fff; }
+
+.ginv-chat-material {
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--ginv-chat-border);
+  border-radius: 6px;
+  background: rgba(45, 101, 151, .07);
+  font-size: .92em;
+}
+
+@media (max-width: 900px) {
+  .ginv-gather-reference { grid-template-columns: 1fr; }
+}
