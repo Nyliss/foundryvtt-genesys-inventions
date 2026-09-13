@@ -1129,31 +1129,92 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding-top: 3px;
 }
 
+/* Narrative dice silhouettes are drawn directly with CSS. This avoids relying on
+   a font's private glyph mapping and keeps the visible shape faithful to the die:
+   d6 = square, d8 = diamond, d12 = hexagon. */
 .ginv-chat-die {
+  position: relative;
   display: inline-grid;
   place-items: center;
-  min-width: 29px;
-  min-height: 29px;
-  padding: 3px;
-  border: 1px solid rgba(0, 0, 0, .28);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .48);
-  font-size: 1.2em;
-  font-weight: 900;
-  box-shadow: 0 1px 2px rgba(0,0,0,.14);
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent !important;
+  box-shadow: none;
+  overflow: visible;
+  vertical-align: middle;
 }
 
-.ginv-chat-die.die-a { background: #5aaf62; }
-.ginv-chat-die.die-p { background: #e1c72e; }
-.ginv-chat-die.die-b { background: #66a8cf; }
-.ginv-chat-die.die-i { background: #8d63a9; }
-.ginv-chat-die.die-c { background: #b85555; }
-.ginv-chat-die.die-s { background: #626262; color: #fff; }
+.ginv-die-shape {
+  position: absolute;
+  inset: 2px;
+  z-index: 1;
+  display: block;
+  background: var(--die-color, #777);
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.28));
+}
 
+.ginv-die-shape.shape-d6 { border-radius: 5px; }
+.ginv-die-shape.shape-d8 {
+  inset: 3px;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+.ginv-die-shape.shape-d12 {
+  inset: 2px 1px;
+  clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
+}
+
+.ginv-die-face-symbols {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: 18px;
+  min-height: 18px;
+  color: #111;
+  font-size: 1.05em;
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ginv-chat-die.die-a { --die-color: #50a95b; }
+.ginv-chat-die.die-p { --die-color: #f4d72d; }
+.ginv-chat-die.die-b { --die-color: #6fc2dc; }
+.ginv-chat-die.die-i { --die-color: #74449a; }
+.ginv-chat-die.die-c { --die-color: #a93435; }
+.ginv-chat-die.die-s { --die-color: #252525; }
+.ginv-chat-die.die-s .ginv-die-face-symbols { color: #fff; }
+.ginv-chat-die.blank .ginv-die-face-symbols { display: none; }
+.ginv-chat-die.blank { opacity: .92; }
+
+.ginv-mini-die {
+  --mini-die-color: #777;
+  display: inline-block;
+  width: 19px;
+  height: 19px;
+  margin-inline: 1px;
+  vertical-align: -4px;
+  background: var(--mini-die-color);
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.2));
+}
+.ginv-mini-die.compact { width: 16px; height: 16px; vertical-align: -3px; }
+.ginv-mini-die.shape-d6 { border-radius: 3px; }
+.ginv-mini-die.shape-d8 { clip-path: polygon(50% 0%,100% 50%,50% 100%,0% 50%); }
+.ginv-mini-die.shape-d12 { clip-path: polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0% 50%); }
+.ginv-mini-die.die-i { --mini-die-color: #74449a; }
+.ginv-mini-die.die-c { --mini-die-color: #a93435; }
+.ginv-difficulty-dice { display: inline-flex; align-items: center; gap: 2px; margin-inline-start: 5px; }
+.ginv-difficulty-display { display: inline-flex; align-items: center; flex-wrap: wrap; }
 .ginv-chat-material {
   margin-top: 7px;
   padding: 7px 9px;
@@ -1192,38 +1253,4 @@
   font-weight: 800;
 }
 
-.ginv-chat-die {
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
-  min-height: 30px;
-  padding: 2px;
-  border-radius: 4px;
-  overflow: hidden;
-}
 
-/* d8 Ability / Difficulty */
-.ginv-chat-die.die-a,
-.ginv-chat-die.die-i {
-  clip-path: polygon(50% 0%, 96% 50%, 50% 100%, 4% 50%);
-  border-radius: 0;
-}
-
-/* d12 Proficiency / Challenge. This is intentionally a compact visual approximation
-   of the system's Genesys die silhouette rather than a generic rounded square. */
-.ginv-chat-die.die-p,
-.ginv-chat-die.die-c {
-  clip-path: polygon(25% 3%, 75% 3%, 98% 27%, 98% 73%, 75% 97%, 25% 97%, 2% 73%, 2% 27%);
-  border-radius: 0;
-}
-
-/* d6 Boost / Setback */
-.ginv-chat-die.die-b,
-.ginv-chat-die.die-s {
-  clip-path: none;
-  border-radius: 5px;
-}
-
-.ginv-chat-die.blank {
-  opacity: .88;
-}
