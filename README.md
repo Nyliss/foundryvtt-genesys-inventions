@@ -60,8 +60,20 @@ Only Character Actors for which the current user has OWNER permission appear in 
 
 ## Installation
 
-Copy the `genesys-inventions` folder into:
+Install **Genesys Inventions** directly through Foundry VTT using the module manifest.
 
-`Foundry Data/Data/modules/genesys-inventions/`
+1. Open **Setup → Add-on Modules → Install Module**.
+2. Paste this URL into **Manifest URL**:
 
-Restart Foundry and enable **Genesys Inventions** in Manage Modules. Import the optional launcher macro if desired.
+   `https://github.com/Nyliss/foundryvtt-genesys-inventions/releases/latest/download/module.json`
+
+3. Click **Install**.
+4. Open your Genesys world and enable **Genesys Inventions** under **Manage Modules**.
+
+### Optional Launcher Macro
+
+A launcher macro is included for users who want a dedicated hotbar button.
+
+File:
+
+`macros/genesys-inventions-launcher-v0.2.1.json`
